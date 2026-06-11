@@ -2,7 +2,8 @@
 
 Run:  ./venv/Scripts/python.exe -m tests.test_pipeline
 Feeds synthetic signals through the default pipeline and asserts the high-pass
-removes low-frequency rumble and the noise gate silences quiet input.
+removes low-frequency rumble, the noise gate silences quiet input, and the
+RNNoise stage attenuates broadband noise while passing speech-band tones.
 """
 
 import numpy as np

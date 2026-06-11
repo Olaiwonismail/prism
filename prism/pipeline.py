@@ -6,6 +6,12 @@ from . import config
 from .dsp.highpass import HighPassFilter
 from .dsp.noise_gate import NoiseGate
 
+try:
+    from .dsp.rnnoise_denoise import RNNoiseDenoiser
+except OSError as exc:  # missing pyrnnoise wheel / shared library
+    RNNoiseDenoiser = None
+    _RNNOISE_ERROR = exc
+
 _INT16_MAX = 32767
 _INT16_SCALE = 32768.0
 
@@ -31,8 +37,8 @@ class Pipeline:
 
 
 def build_default_pipeline():
-    """Phase 1 chain: high-pass filter -> noise gate."""
-    return Pipeline([
+    """Current chain: high-pass filter -> noise gate -> RNNoise denoiser."""
+    stages = [
         HighPassFilter(
             cutoff_hz=config.HIGHPASS_CUTOFF_HZ,
             samplerate=config.SAMPLERATE,
@@ -45,4 +51,10 @@ def build_default_pipeline():
             attack_ms=config.NOISE_GATE_ATTACK_MS,
             release_ms=config.NOISE_GATE_RELEASE_MS,
         ),
-    ])
+    ]
+    if config.RNNOISE_ENABLED:
+        if RNNoiseDenoiser is None:
+            print(f"RNNoise unavailable, running without it: {_RNNOISE_ERROR}")
+        else:
+            stages.append(RNNoiseDenoiser(mix=config.RNNOISE_MIX))
+    return Pipeline(stages)

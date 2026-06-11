@@ -4,8 +4,11 @@ All tunable knobs live here so the rest of the code stays declarative.
 """
 
 # --- Audio stream -----------------------------------------------------------
-SAMPLERATE = 16000
-BLOCKSIZE = 1024          # frames per block (~64 ms at 16 kHz)
+# RNNoise is trained on 48 kHz audio and consumes fixed 480-sample (10 ms)
+# frames, so the whole stream runs at 48 kHz with one block == one RNNoise
+# frame. WASAPI shared mode resamples if the device format differs.
+SAMPLERATE = 48000
+BLOCKSIZE = 480           # frames per block (10 ms at 48 kHz)
 DTYPE = "int16"
 
 # Virtual cable output device, matched by name substring (VB-Audio Cable).
@@ -28,4 +31,8 @@ NOISE_GATE_THRESHOLD_DB = -25.0   # below this loudness -> treated as silence
                                   # Lower toward -28 if quiet speech gets clipped.
 NOISE_GATE_ATTACK_MS = 5.0        # how fast the gate opens on speech
 NOISE_GATE_RELEASE_MS = 120.0     # how fast the gate closes on silence
+
+# --- RNNoise (AI noise removal) ----------------------------------------------
+RNNOISE_ENABLED = True
+RNNOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
 

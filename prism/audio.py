@@ -5,6 +5,7 @@ import sounddevice as sd
 
 from . import config
 from .pipeline import build_default_pipeline
+from .dsp import rnnoise_denoise
 
 _INT16_SCALE = 32768.0
 _DB_FLOOR = -80.0  # quietest level reported to the UI
