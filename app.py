@@ -5,8 +5,6 @@
 
 import sys
 
-import sounddevice as sd
-
 from prism import audio, config
 from prism.pipeline import build_default_pipeline
 
@@ -20,6 +18,14 @@ Install it (one-time):
   4. Confirm "CABLE Input" appears under Windows Sound -> Playback
 """
 
+NO_MIC_HELP = """\
+Could not find a usable microphone.
+
+Prism needs a real mic as its input (it never uses "CABLE Output" -- that would
+make it listen to its own output). Plug in a microphone, or check that one is
+enabled under Windows Sound -> Recording, then run Prism again.
+"""
+
 
 def main():
     cable_index = audio.find_device(config.CABLE_NAME, "output")
@@ -27,10 +33,13 @@ def main():
         print(INSTALL_HELP, file=sys.stderr)
         sys.exit(1)
 
-    input_index = sd.default.device[0]
+    input_index = audio.pick_input_device()
+    if input_index is None:
+        print(NO_MIC_HELP, file=sys.stderr)
+        sys.exit(1)
+
     pipeline = build_default_pipeline()
     audio.run(pipeline, input_index, cable_index)
- 
 
 if __name__ == "__main__":
     main()

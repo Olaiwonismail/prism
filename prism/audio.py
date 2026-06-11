@@ -19,6 +19,29 @@ def find_device(name_substring, kind):
     return None
 
 
+def _is_real_mic(name):
+    needle = name.lower()
+    return not any(excluded.lower() in needle for excluded in config.INPUT_EXCLUDE)
+
+
+def pick_input_device():
+    """Return the index of a real microphone, never a VB-Cable or mapper device.
+
+    Prefers the system default input; falls back to the first real input
+    device. Returns None if no usable microphone exists.
+    """
+    default_index = sd.default.device[0]
+    if default_index is not None and default_index >= 0:
+        name = sd.query_devices(default_index)["name"]
+        if _is_real_mic(name):
+            return default_index
+        print(f'Default mic "{name}" is a virtual device; picking a real mic instead.')
+    for index, device in enumerate(sd.query_devices()):
+        if device["max_input_channels"] > 0 and _is_real_mic(device["name"]):
+            return index
+    return None
+
+
 def _make_callback(pipeline, out_channels):
     def callback(indata, outdata, frames, time, status):
         if status:

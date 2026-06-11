@@ -10,6 +10,9 @@ DTYPE = "int16"
 
 # Virtual cable output device, matched by name substring (VB-Audio Cable).
 CABLE_NAME = "CABLE Input"
+# Never use these as the mic: VB-Cable devices (feedback loop) and Windows
+# mapper pseudo-devices, which just forward to the default device.
+INPUT_EXCLUDE = ("CABLE", "Microsoft Sound Mapper", "Primary Sound")
 
 # --- High-pass filter -------------------------------------------------------
 # Removes low-frequency rumble/hum. Speech fundamentals start ~85 Hz, so a
@@ -20,6 +23,9 @@ HIGHPASS_ORDER = 2
 # --- Noise gate -------------------------------------------------------------
 # Silences the mic when the signal is quieter than the threshold (i.e. between
 # words). Attack/release are smoothing times to avoid clicks.
-NOISE_GATE_THRESHOLD_DB = -45.0   # below this loudness -> treated as silence
+NOISE_GATE_THRESHOLD_DB = -25.0   # below this loudness -> treated as silence
+                                  # measured: noise floor ~-35 dBFS, voice ~-20 dBFS.
+                                  # Lower toward -28 if quiet speech gets clipped.
 NOISE_GATE_ATTACK_MS = 5.0        # how fast the gate opens on speech
 NOISE_GATE_RELEASE_MS = 120.0     # how fast the gate closes on silence
+
