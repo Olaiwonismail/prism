@@ -23,12 +23,21 @@ non-technical users (gamers, party chat, remote workers, streamers).
 
 ## Current state
 
-Early/MVP. **Phase 1 is functional**: mic capture → high-pass → noise gate →
-virtual cable routing, verified end-to-end.
+Early/MVP. **Phase 1 is functional, Phase 2 started**: mic capture →
+high-pass → noise gate → RNNoise AI denoising → virtual cable routing.
 
 ```
-physical mic → [high-pass → noise gate] → CABLE Input (VB-Audio)
+physical mic → [high-pass → noise gate → RNNoise] → CABLE Input (VB-Audio)
 ```
+
+RNNoise notes ([prism/dsp/rnnoise_denoise.py](prism/dsp/rnnoise_denoise.py)):
+binds via ctypes to the shared library bundled in the `pyrnnoise` wheel; the
+package's own Python wrapper is **never imported** (broken `audiolab`/`av`
+dependency chain, and unneeded for streaming). The stream runs at 48 kHz with
+480-sample blocks so one block == one RNNoise frame (no rechunk latency). If
+pyrnnoise is missing the pipeline degrades gracefully to Phase 1. Measured on
+this machine: ~1.3 ms per 10 ms block during speech, ~0.55 ms on silence —
+the gate sitting before RNNoise keeps idle CPU low.
 
 ### Layout
 
@@ -41,6 +50,7 @@ prism/
   dsp/
     highpass.py     # HighPassFilter — Butterworth, stateful (scipy sosfilt)
     noise_gate.py   # NoiseGate — RMS gate with attack/release smoothing
+    rnnoise_denoise.py  # RNNoiseDenoiser — neural denoiser (ctypes -> rnnoise.dll)
 tests/
   test_pipeline.py  # offline DSP checks (no audio devices needed)
 ```
@@ -115,8 +125,8 @@ Intended signal-chain order once built:
   processing over anything that buffers large windows. No GPU dependencies.
 - All real-time processing belongs in a pipeline **stage**; keep the audio
   callback fast and non-blocking (no heavy allocation or I/O inside it).
-- Samplerate caveat: VB-Cable is often 44100 Hz in Windows. WASAPI shared mode
-  resamples, so 16000 usually works; if PortAudio raises "Invalid sample rate",
-  adjust `SAMPLERATE` in [prism/config.py](prism/config.py) or the cable's
-  Windows device format.
+- Samplerate caveat: the stream runs at 48000 Hz (RNNoise requirement; do not
+  change it casually — RNNoise quality degrades off 48 kHz). WASAPI shared mode
+  resamples if the device format differs; if PortAudio raises "Invalid sample
+  rate", change the cable's Windows device format rather than `SAMPLERATE`.
 - Licensed under **MIT**.

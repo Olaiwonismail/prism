@@ -4,8 +4,7 @@ import numpy as np
 import sounddevice as sd
 
 from . import config
-from .pipeline import build_default_pipeline
-from .dsp import rnnoise_denoise
+from .pipeline import build_default_pipeline, RNNoiseDenoiser
 
 _INT16_SCALE = 32768.0
 _DB_FLOOR = -80.0  # quietest level reported to the UI
@@ -88,6 +87,23 @@ class AudioEngine:
         self.out_db = _DB_FLOOR
         self.gate_open = False
         self._stream = None
+        self._rnnoise_enabled = config.RNNOISE_ENABLED
+        self._rnnoise_stage = None
+
+    @property
+    def rnnoise_available(self):
+        return self._rnnoise_stage is not None
+
+    @property
+    def rnnoise_enabled(self):
+        return self._rnnoise_enabled
+
+    @rnnoise_enabled.setter
+    def rnnoise_enabled(self, value):
+        """Flip AI denoising live; persists across mic switches/restarts."""
+        self._rnnoise_enabled = bool(value)
+        if self._rnnoise_stage is not None:
+            self._rnnoise_stage.enabled = self._rnnoise_enabled
 
     @property
     def running(self):
@@ -102,6 +118,13 @@ class AudioEngine:
         """
         self.stop()
         pipeline = build_default_pipeline()
+        self._rnnoise_stage = next(
+            (s for s in pipeline.stages
+             if RNNoiseDenoiser is not None and isinstance(s, RNNoiseDenoiser)),
+            None,
+        )
+        if self._rnnoise_stage is not None:
+            self._rnnoise_stage.enabled = self._rnnoise_enabled
         out_channels = min(
             int(sd.query_devices(self.output_index)["max_output_channels"]), 2
         )

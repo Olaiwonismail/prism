@@ -10,9 +10,10 @@ your mic → [ clean-up pipeline ] → virtual cable → Discord / Zoom / OBS / 
 
 Open source, Windows-first, **runs on your CPU — no GPU needed.**
 
-> **Status:** early MVP. Phase 1 works end-to-end today: mic capture →
-> high-pass filter → noise gate → virtual cable. AI noise removal, voice
-> isolation, and a desktop UI are on the roadmap below.
+> **Status:** early MVP. Working today: mic capture → high-pass filter →
+> noise gate → **RNNoise AI noise removal** → virtual cable, with a minimal
+> control window. Voice isolation and the full desktop UI are on the roadmap
+> below.
 
 ---
 
@@ -40,6 +41,7 @@ Audio cleanup happens in a **pipeline** of small stages. Today the chain is:
 |---|---|
 | **High-pass filter** | Trims low rumble/hum below ~90 Hz without thinning your voice. |
 | **Noise gate** | Silences the mic between words, so background hiss doesn't bleed through. |
+| **RNNoise** | Neural-network noise removal: strips fan hum, keyboard clatter, and hiss from your speech in real time (10 ms frames, CPU only). |
 
 The processed audio is written to a **virtual audio cable**, which any app can
 pick as its microphone. More stages (AI noise removal, voice isolation) plug in
@@ -77,7 +79,8 @@ python -m venv venv
 ./venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-Dependencies: `numpy`, `scipy`, `sounddevice`.
+Dependencies: `numpy`, `scipy`, `sounddevice`, `pyrnnoise` (bundles the
+RNNoise library; if it's missing, Prism still runs without AI noise removal).
 
 ---
 
@@ -115,6 +118,7 @@ prism/
   dsp/
     highpass.py     # HighPassFilter — Butterworth, stateful
     noise_gate.py   # NoiseGate — RMS gate with attack/release smoothing
+    rnnoise_denoise.py  # RNNoiseDenoiser — neural noise removal (ctypes)
 tests/
   test_pipeline.py  # offline DSP checks
 ```
@@ -136,10 +140,10 @@ in [prism/pipeline.py](prism/pipeline.py) — the audio callback stays untouched
 
 ## Roadmap
 
-1. **Core pipeline** *(current)* — mic capture, cable routing, high-pass filter,
-   noise gate, device auto-detect, system tray.
-2. **AI noise removal** — RNNoise (~10 ms) → DeepFilterNet (~20 ms), adjustable
-   level, noise meter.
+1. **Core pipeline** *(done, tray icon pending)* — mic capture, cable routing,
+   high-pass filter, noise gate, device auto-detect, system tray.
+2. **AI noise removal** *(current)* — ✅ RNNoise (~10 ms) → DeepFilterNet
+   (~20 ms), adjustable level, noise meter.
 3. **Voice isolation** — Silero VAD for speech detection + Demucs v4 to separate
    your voice from background voices, music, and TV.
 4. **Sound injection** — soundboard, hotkeys, per-sound volume.
