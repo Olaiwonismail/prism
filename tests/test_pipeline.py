@@ -66,6 +66,31 @@ def check_phase1():
     assert out.dtype == np.int16 and out.ndim == 1 and out.shape == (N,)
 
 
+def check_gate_hold():
+    """The hold time should keep the gate open through a brief speech gap so
+    word ends aren't chopped, then close once the gap exceeds the hold."""
+    from prism.dsp.noise_gate import NoiseGate
+
+    loud = (0.3 * np.sin(2 * np.pi * 300 * T[:N])).astype(np.float32)
+    silence = np.zeros(N, dtype=np.float32)
+    gate = NoiseGate(threshold_db=-45.0, samplerate=FS, blocksize=N,
+                     attack_ms=5.0, release_ms=150.0, hold_ms=200.0)
+
+    for _ in range(8):           # open the gate on speech
+        gate.process(loud)
+    block_ms = 1000.0 * N / FS
+    # Check the gain envelope, not output RMS: silent input is zero at any gain.
+    for _ in range(int(50.0 / block_ms)):    # 50 ms gap < 200 ms hold
+        gate.process(silence)
+    print(f"gate hold    : gain after 50ms gap={gate._gain:.3f} (stays open)")
+    assert gate._gain > 0.5, "gate closed during a gap shorter than the hold time"
+
+    # Release is a fractional approach (asymptotic), so allow ample time.
+    for _ in range(int(2000.0 / block_ms)):   # long silence >> hold + release
+        gate.process(silence)
+    assert gate._gain < 1e-3, "gate did not close after the hold expired"
+
+
 def check_rnnoise():
     if RNNoiseDenoiser is None:
         print("RNNoise unavailable -- skipping its checks.")
@@ -103,6 +128,7 @@ def check_rnnoise():
 
 def main():
     check_phase1()
+    check_gate_hold()
     check_rnnoise()
     print("\nAll pipeline checks passed.")
 

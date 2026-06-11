@@ -37,19 +37,18 @@ class Pipeline:
 
 
 def build_default_pipeline():
-    """Current chain: high-pass filter -> noise gate -> RNNoise denoiser."""
+    """Current chain: high-pass filter -> RNNoise denoiser -> noise gate.
+
+    The gate runs *after* RNNoise so it acts on the cleaned signal, whose
+    noise floor is far lower. That lets it use a low threshold that gates true
+    silence without clipping soft speech onsets (fricatives, quiet word
+    starts) -- which a gate on the raw, noisy mic would chop.
+    """
     stages = [
         HighPassFilter(
             cutoff_hz=config.HIGHPASS_CUTOFF_HZ,
             samplerate=config.SAMPLERATE,
             order=config.HIGHPASS_ORDER,
-        ),
-        NoiseGate(
-            threshold_db=config.NOISE_GATE_THRESHOLD_DB,
-            samplerate=config.SAMPLERATE,
-            blocksize=config.BLOCKSIZE,
-            attack_ms=config.NOISE_GATE_ATTACK_MS,
-            release_ms=config.NOISE_GATE_RELEASE_MS,
         ),
     ]
     if config.RNNOISE_ENABLED:
@@ -57,4 +56,12 @@ def build_default_pipeline():
             print(f"RNNoise unavailable, running without it: {_RNNOISE_ERROR}")
         else:
             stages.append(RNNoiseDenoiser(mix=config.RNNOISE_MIX))
+    stages.append(NoiseGate(
+        threshold_db=config.NOISE_GATE_THRESHOLD_DB,
+        samplerate=config.SAMPLERATE,
+        blocksize=config.BLOCKSIZE,
+        attack_ms=config.NOISE_GATE_ATTACK_MS,
+        release_ms=config.NOISE_GATE_RELEASE_MS,
+        hold_ms=config.NOISE_GATE_HOLD_MS,
+    ))
     return Pipeline(stages)

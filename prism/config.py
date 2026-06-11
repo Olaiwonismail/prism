@@ -24,13 +24,18 @@ HIGHPASS_CUTOFF_HZ = 90
 HIGHPASS_ORDER = 2
 
 # --- Noise gate -------------------------------------------------------------
-# Silences the mic when the signal is quieter than the threshold (i.e. between
-# words). Attack/release are smoothing times to avoid clicks.
-NOISE_GATE_THRESHOLD_DB = -25.0   # below this loudness -> treated as silence
-                                  # measured: noise floor ~-35 dBFS, voice ~-20 dBFS.
-                                  # Lower toward -28 if quiet speech gets clipped.
+# Silences the mic between words. Runs AFTER RNNoise (see pipeline.py), so it
+# sees the cleaned signal whose noise floor is far below the raw mic's. That
+# lets the threshold sit low enough to pass soft speech onsets while still
+# gating true silence -- a gate on the raw mic had to sit at -25 (above the
+# ~-35 dBFS noise floor) and clipped quiet consonants.
+NOISE_GATE_THRESHOLD_DB = -45.0   # below this loudness -> treated as silence
+                                  # raise toward -35 if residual noise leaks
+                                  # through; lower if soft speech still clips.
 NOISE_GATE_ATTACK_MS = 5.0        # how fast the gate opens on speech
-NOISE_GATE_RELEASE_MS = 120.0     # how fast the gate closes on silence
+NOISE_GATE_RELEASE_MS = 150.0     # how fast the gate fades out after the hold
+NOISE_GATE_HOLD_MS = 200.0        # stays fully open this long after speech
+                                  # drops out, so word ends/gaps aren't chopped
 
 # --- RNNoise (AI noise removal) ----------------------------------------------
 RNNOISE_ENABLED = True

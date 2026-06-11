@@ -24,11 +24,17 @@ non-technical users (gamers, party chat, remote workers, streamers).
 ## Current state
 
 Early/MVP. **Phase 1 is functional, Phase 2 started**: mic capture →
-high-pass → noise gate → RNNoise AI denoising → virtual cable routing.
+high-pass → RNNoise AI denoising → noise gate → virtual cable routing.
 
 ```
-physical mic → [high-pass → noise gate → RNNoise] → CABLE Input (VB-Audio)
+physical mic → [high-pass → RNNoise → noise gate] → CABLE Input (VB-Audio)
 ```
+
+Note the gate runs **after** RNNoise (not the PRD's gate-first order): on the
+cleaned signal its threshold can sit low (-45 dBFS) and gate true silence
+without clipping soft speech onsets. A gate on the raw mic had to sit above
+the ~-35 dBFS noise floor (-25) and chopped quiet consonants. The gate also
+has a hold time so word ends/brief gaps aren't cut.
 
 RNNoise notes ([prism/dsp/rnnoise_denoise.py](prism/dsp/rnnoise_denoise.py)):
 binds via ctypes to the shared library bundled in the `pyrnnoise` wheel; the

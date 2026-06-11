@@ -10,14 +10,16 @@ _INT16_SCALE = 32768.0
 _DB_FLOOR = -80.0  # quietest level reported to the UI
 
 
-def find_device(name_substring, kind):
+def find_device(name_substring, kind, hostapi=None):
     """Return the index of the first device whose name contains name_substring
-    (case-insensitive) and supports the given kind ("input" or "output").
-    Returns None if no match is found.
+    (case-insensitive) and supports the given kind ("input" or "output"),
+    optionally restricted to one host API. Returns None if no match is found.
     """
     channel_key = "max_input_channels" if kind == "input" else "max_output_channels"
     needle = name_substring.lower()
     for index, device in enumerate(sd.query_devices()):
+        if hostapi is not None and device["hostapi"] != hostapi:
+            continue
         if needle in device["name"].lower() and device[channel_key] > 0:
             return index
     return None
@@ -125,8 +127,17 @@ class AudioEngine:
         )
         if self._rnnoise_stage is not None:
             self._rnnoise_stage.enabled = self._rnnoise_enabled
+
+        # PortAudio cannot open a duplex stream across host APIs (-9993), so
+        # use the cable device from the same host API as the chosen mic.
+        output_index = self.output_index
+        in_api = sd.query_devices(input_index)["hostapi"]
+        if sd.query_devices(output_index)["hostapi"] != in_api:
+            match = find_device(config.CABLE_NAME, "output", hostapi=in_api)
+            if match is not None:
+                output_index = match
         out_channels = min(
-            int(sd.query_devices(self.output_index)["max_output_channels"]), 2
+            int(sd.query_devices(output_index)["max_output_channels"]), 2
         )
 
         def callback(indata, outdata, frames, time, status):
@@ -143,7 +154,7 @@ class AudioEngine:
             self.gate_open = self.in_db >= config.NOISE_GATE_THRESHOLD_DB
 
         stream = sd.Stream(
-            device=(input_index, self.output_index),
+            device=(input_index, output_index),
             samplerate=config.SAMPLERATE,
             blocksize=config.BLOCKSIZE,
             dtype=config.DTYPE,
