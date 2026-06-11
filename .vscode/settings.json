@@ -1,4 +1,4 @@
 {
     "python.REPL.enableREPLSmartSend": false,
-    "chat.disableAIFeatures": false
+    "chat.disableAIFeatures": true
 }

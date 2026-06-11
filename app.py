@@ -5,8 +5,10 @@
 
 import sys
 
+import sounddevice as sd
+
 from prism import audio, config
-from prism.pipeline import build_default_pipeline
+from prism.ui import run_ui
 
 INSTALL_HELP = """\
 Could not find the VB-Audio Virtual Cable output device ("CABLE Input").
@@ -38,8 +40,12 @@ def main():
         print(NO_MIC_HELP, file=sys.stderr)
         sys.exit(1)
 
-    pipeline = build_default_pipeline()
-    audio.run(pipeline, input_index, cable_index)
+    print(f"Mic input : [{input_index}] {sd.query_devices(input_index)['name']}")
+    print(f"Output    : [{cable_index}] {sd.query_devices(cable_index)['name']}")
+
+    engine = audio.AudioEngine(cable_index)
+    engine.start(input_index)
+    run_ui(engine)
 
 if __name__ == "__main__":
     main()

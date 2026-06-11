@@ -1,9 +1,13 @@
-"""Audio device discovery and the full-duplex stream runner."""
+"""Audio device discovery and the controllable audio engine."""
 
 import numpy as np
 import sounddevice as sd
 
 from . import config
+from .pipeline import build_default_pipeline
+
+_INT16_SCALE = 32768.0
+_DB_FLOOR = -80.0  # quietest level reported to the UI
 
 
 def find_device(name_substring, kind):
@@ -42,40 +46,94 @@ def pick_input_device():
     return None
 
 
-def _make_callback(pipeline, out_channels):
-    def callback(indata, outdata, frames, time, status):
-        if status:
-            print("Audio status:", status)
-        processed = pipeline.process_int16(indata)  # (frames,) int16
-        if out_channels == 1:
-            outdata[:, 0] = processed
-        else:
-            # Fan mono out to every output channel (e.g. a stereo cable).
-            outdata[:] = np.repeat(processed[:, None], out_channels, axis=1)
+def list_input_devices():
+    """Return [(index, name)] of real microphones from a single host API.
 
-    return callback
+    PortAudio lists every physical device once per host API (MME, DirectSound,
+    WASAPI, WDM-KS). Restrict to WASAPI when available (full, untruncated
+    names) or the default host API, so each mic appears once.
+    """
+    hostapis = sd.query_hostapis()
+    target = next((i for i, api in enumerate(hostapis)
+                   if api["name"] == "Windows WASAPI"), sd.default.hostapi)
+    return [(index, device["name"])
+            for index, device in enumerate(sd.query_devices())
+            if (device["hostapi"] == target
+                and device["max_input_channels"] > 0
+                and _is_real_mic(device["name"]))]
 
 
-def run(pipeline, input_index, output_index):
-    """Open a duplex stream: mic (input_index) -> pipeline -> output_index."""
-    input_info = sd.query_devices(input_index)
-    output_info = sd.query_devices(output_index)
-    out_channels = min(int(output_info["max_output_channels"]), 2)
+def _dbfs(x):
+    rms = float(np.sqrt(np.mean(x * x)))
+    if rms <= 0.0:
+        return _DB_FLOOR
+    return max(_DB_FLOOR, 20.0 * np.log10(rms))
 
-    print(f"Mic input : [{input_index}] {input_info['name']}")
-    print(f"Output    : [{output_index}] {output_info['name']} ({out_channels} ch)")
 
-    with sd.Stream(
-        device=(input_index, output_index),
-        samplerate=config.SAMPLERATE,
-        blocksize=config.BLOCKSIZE,
-        dtype=config.DTYPE,
-        channels=(1, out_channels),
-        callback=_make_callback(pipeline, out_channels),
-    ):
-        print("Pipeline running. Press Ctrl+C to stop.")
-        try:
-            while True:
-                sd.sleep(1000)
-        except KeyboardInterrupt:
-            print("\nStopped.")
+class AudioEngine:
+    """Owns the mic -> pipeline -> cable stream; controllable from a UI.
+
+    ``enabled`` toggles processing vs. raw passthrough (a plain bool the audio
+    callback reads each block — atomic under the GIL, no locks). ``in_db``,
+    ``out_db`` and ``gate_open`` are written by the callback for the UI to
+    poll; they are display-only approximations.
+    """
+
+    def __init__(self, output_index):
+        self.output_index = output_index
+        self.input_index = None
+        self.enabled = True
+        self.in_db = _DB_FLOOR
+        self.out_db = _DB_FLOOR
+        self.gate_open = False
+        self._stream = None
+
+    @property
+    def running(self):
+        return self._stream is not None
+
+    def start(self, input_index):
+        """Open the duplex stream from input_index to the cable (non-blocking).
+
+        Builds a fresh pipeline so filter/gate state never carries across
+        devices. Raises on failure (e.g. device unplugged) with the stream
+        left closed.
+        """
+        self.stop()
+        pipeline = build_default_pipeline()
+        out_channels = min(
+            int(sd.query_devices(self.output_index)["max_output_channels"]), 2
+        )
+
+        def callback(indata, outdata, frames, time, status):
+            if status:
+                print("Audio status:", status)
+            self.in_db = _dbfs(indata[:, 0].astype(np.float32) / _INT16_SCALE)
+            if self.enabled:
+                processed = pipeline.process_int16(indata)
+            else:
+                processed = indata[:, 0]  # raw passthrough
+            # Broadcast mono to every output channel (e.g. a stereo cable).
+            outdata[:] = processed[:, None]
+            self.out_db = _dbfs(processed.astype(np.float32) / _INT16_SCALE)
+            self.gate_open = self.in_db >= config.NOISE_GATE_THRESHOLD_DB
+
+        stream = sd.Stream(
+            device=(input_index, self.output_index),
+            samplerate=config.SAMPLERATE,
+            blocksize=config.BLOCKSIZE,
+            dtype=config.DTYPE,
+            channels=(1, out_channels),
+            callback=callback,
+        )
+        stream.start()
+        self._stream = stream
+        self.input_index = input_index
+
+    def stop(self):
+        if self._stream is not None:
+            self._stream.close()
+            self._stream = None
+
+    def switch_input(self, input_index):
+        self.start(input_index)
