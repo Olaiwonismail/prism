@@ -107,6 +107,18 @@ Prism prints the mic and cable it selected, then `Pipeline running.` Press
 **CABLE Output** as the microphone. Speak — its level meter should respond to
 your voice.
 
+### Building the Windows .exe
+
+```powershell
+./venv/Scripts/python.exe -m pip install pyinstaller
+./venv/Scripts/python.exe scripts/fetch_deepfilternet.py   # model gets bundled
+./venv/Scripts/python.exe -m PyInstaller Prism.spec
+```
+
+This produces a folder build at `dist/Prism/` (~190 MB) with **both denoiser
+models bundled** — no downloads at runtime. Zip the folder to distribute it.
+VB-Cable still has to be installed separately (it's a driver).
+
 ### Offline test (no audio devices needed)
 
 ```powershell

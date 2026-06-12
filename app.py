@@ -29,16 +29,30 @@ enabled under Windows Sound -> Recording, then run Prism again.
 """
 
 
+def _fail(message):
+    """Report a fatal startup problem and exit.
+
+    The packaged .exe runs windowed (no console), so the message also goes to
+    a dialog there -- otherwise the app would just silently not appear.
+    """
+    print(message, file=sys.stderr)
+    if getattr(sys, "frozen", False):
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Prism", message)
+    sys.exit(1)
+
+
 def main():
     cable_index = audio.find_device(config.CABLE_NAME, "output")
     if cable_index is None:
-        print(INSTALL_HELP, file=sys.stderr)
-        sys.exit(1)
+        _fail(INSTALL_HELP)
 
     input_index = audio.pick_input_device()
     if input_index is None:
-        print(NO_MIC_HELP, file=sys.stderr)
-        sys.exit(1)
+        _fail(NO_MIC_HELP)
 
     print(f"Mic input : [{input_index}] {sd.query_devices(input_index)['name']}")
     print(f"Output    : [{cable_index}] {sd.query_devices(cable_index)['name']}")

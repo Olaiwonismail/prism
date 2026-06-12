@@ -12,7 +12,9 @@ default config) the FIFO stays empty and no extra latency is added.
 
 import ctypes
 import importlib.util
+import os
 import platform
+import sys
 
 import numpy as np
 
@@ -25,16 +27,26 @@ _LIB_NAMES = {
 }
 
 
-def _load_librnnoise():
-    """Load the rnnoise shared library shipped inside the pyrnnoise wheel."""
+def _library_dir():
+    """Directory holding the rnnoise shared library.
+
+    Frozen (PyInstaller) builds bundle the library at the app root; source
+    installs load it from inside the pyrnnoise wheel.
+    """
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     spec = importlib.util.find_spec("pyrnnoise")
     if spec is None or spec.origin is None:
         raise OSError("pyrnnoise is not installed (pip install pyrnnoise)")
+    return os.path.dirname(spec.origin)
+
+
+def _load_librnnoise():
+    """Load the rnnoise shared library (model weights baked in)."""
     lib_name = _LIB_NAMES.get(platform.system())
     if lib_name is None:
         raise OSError(f"rnnoise: unsupported platform {platform.system()}")
-    import os
-    lib = ctypes.CDLL(os.path.join(os.path.dirname(spec.origin), lib_name))
+    lib = ctypes.CDLL(os.path.join(_library_dir(), lib_name))
     lib.rnnoise_create.argtypes = [ctypes.c_void_p]
     lib.rnnoise_create.restype = ctypes.c_void_p
     lib.rnnoise_destroy.argtypes = [ctypes.c_void_p]
