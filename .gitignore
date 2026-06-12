@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Prism: downloaded AI model weights (fetched via scripts/, not committed)
+models/

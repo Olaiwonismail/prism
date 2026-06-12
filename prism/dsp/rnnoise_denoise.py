@@ -63,6 +63,9 @@ class RNNoiseDenoiser:
     UI noise meter material.
     """
 
+    IS_DENOISER = True  # marks this as the pipeline's denoiser stage (see audio.py)
+    name = "RNNoise"
+
     def __init__(self, mix=1.0, enabled=True):
         self.mix = float(mix)
         self.enabled = enabled

@@ -4,7 +4,8 @@ import numpy as np
 import sounddevice as sd
 
 from . import config
-from .pipeline import build_default_pipeline, RNNoiseDenoiser
+from .meters import NoiseMeter
+from .pipeline import build_default_pipeline
 
 _INT16_SCALE = 32768.0
 _DB_FLOOR = -80.0  # quietest level reported to the UI
@@ -88,24 +89,48 @@ class AudioEngine:
         self.in_db = _DB_FLOOR
         self.out_db = _DB_FLOOR
         self.gate_open = False
+        self.noise_floor_db = _DB_FLOOR  # room loudness between words (display)
+        self.reduction_db = 0.0          # how much noise we're stripping (display)
         self._stream = None
-        self._rnnoise_enabled = config.RNNOISE_ENABLED
-        self._rnnoise_stage = None
+        self._denoise_enabled = config.DENOISE_ENABLED
+        self._denoise_mix = config.DENOISE_MIX
+        self._denoiser_choice = config.DENOISER  # "rnnoise" | "deepfilternet" | "none"
+        self._denoiser = None  # the active denoiser stage (RNNoise or DeepFilterNet)
+        self._meter = None
 
     @property
-    def rnnoise_available(self):
-        return self._rnnoise_stage is not None
+    def denoiser_available(self):
+        return self._denoiser is not None
 
     @property
-    def rnnoise_enabled(self):
-        return self._rnnoise_enabled
+    def denoiser_name(self):
+        return getattr(self._denoiser, "name", "AI noise removal")
 
-    @rnnoise_enabled.setter
-    def rnnoise_enabled(self, value):
+    @property
+    def denoiser_enabled(self):
+        return self._denoise_enabled
+
+    @denoiser_enabled.setter
+    def denoiser_enabled(self, value):
         """Flip AI denoising live; persists across mic switches/restarts."""
-        self._rnnoise_enabled = bool(value)
-        if self._rnnoise_stage is not None:
-            self._rnnoise_stage.enabled = self._rnnoise_enabled
+        self._denoise_enabled = bool(value)
+        if self._denoiser is not None:
+            self._denoiser.enabled = self._denoise_enabled
+
+    @property
+    def denoiser_mix(self):
+        return self._denoise_mix
+
+    @denoiser_mix.setter
+    def denoiser_mix(self, value):
+        """Set denoise strength live (0.0 = bypass, 1.0 = fully cleaned).
+
+        A plain float write the callback reads each block — atomic under the
+        GIL, no lock. Persists across mic switches/restarts.
+        """
+        self._denoise_mix = min(1.0, max(0.0, float(value)))
+        if self._denoiser is not None:
+            self._denoiser.mix = self._denoise_mix
 
     @property
     def running(self):
@@ -119,14 +144,23 @@ class AudioEngine:
         left closed.
         """
         self.stop()
-        pipeline = build_default_pipeline()
-        self._rnnoise_stage = next(
-            (s for s in pipeline.stages
-             if RNNoiseDenoiser is not None and isinstance(s, RNNoiseDenoiser)),
+        pipeline = build_default_pipeline(self._denoiser_choice)
+        self._denoiser = next(
+            (s for s in pipeline.stages if getattr(s, "IS_DENOISER", False)),
             None,
         )
-        if self._rnnoise_stage is not None:
-            self._rnnoise_stage.enabled = self._rnnoise_enabled
+        if self._denoiser is not None:
+            self._denoiser.enabled = self._denoise_enabled
+            self._denoiser.mix = self._denoise_mix
+
+        block_ms = 1000.0 * config.BLOCKSIZE / config.SAMPLERATE
+        self._meter = NoiseMeter(
+            block_ms=block_ms,
+            speech_threshold=config.NOISE_METER_SPEECH_THRESHOLD,
+            floor_tau_ms=config.NOISE_METER_FLOOR_TAU_MS,
+            reduction_tau_ms=config.NOISE_METER_REDUCTION_TAU_MS,
+            db_floor=_DB_FLOOR,
+        )
 
         # PortAudio cannot open a duplex stream across host APIs (-9993), so
         # use the cable device from the same host API as the chosen mic.
@@ -152,6 +186,16 @@ class AudioEngine:
             outdata[:] = processed[:, None]
             self.out_db = _dbfs(processed.astype(np.float32) / _INT16_SCALE)
             self.gate_open = self.in_db >= config.NOISE_GATE_THRESHOLD_DB
+            # Noise meter: the room floor needs a VAD, which only RNNoise
+            # exposes (DeepFilterNet has none). Feed it only when that denoiser
+            # is actually running; otherwise pass None and the floor holds.
+            if self.enabled and self._denoise_enabled:
+                speech_prob = getattr(self._denoiser, "speech_prob", None)
+            else:
+                speech_prob = None
+            self._meter.update(self.in_db, self.out_db, speech_prob)
+            self.noise_floor_db = self._meter.noise_floor_db
+            self.reduction_db = self._meter.reduction_db
 
         stream = sd.Stream(
             device=(input_index, output_index),
@@ -172,3 +216,19 @@ class AudioEngine:
 
     def switch_input(self, input_index):
         self.start(input_index)
+
+    @property
+    def denoiser_choice(self):
+        return self._denoiser_choice
+
+    def set_denoiser(self, choice):
+        """Switch the AI denoiser live (e.g. 'rnnoise' <-> 'deepfilternet').
+
+        Rebuilds the pipeline on the current mic, the same way switching mics
+        does — a brief, deliberate restart, not a hot path. If the choice can't
+        load (e.g. DeepFilterNet without onnxruntime) the pipeline falls back to
+        RNNoise; read ``denoiser_name`` afterwards to see what actually loaded.
+        """
+        self._denoiser_choice = choice
+        if self.running:
+            self.start(self.input_index)

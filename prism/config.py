@@ -37,7 +37,25 @@ NOISE_GATE_RELEASE_MS = 150.0     # how fast the gate fades out after the hold
 NOISE_GATE_HOLD_MS = 200.0        # stays fully open this long after speech
                                   # drops out, so word ends/gaps aren't chopped
 
-# --- RNNoise (AI noise removal) ----------------------------------------------
-RNNOISE_ENABLED = True
-RNNOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
+# --- AI noise removal --------------------------------------------------------
+# Which denoiser runs in the pipeline:
+#   "rnnoise"       - light: ~10 ms latency, ~1 ms/block CPU, bundled in a wheel
+#   "deepfilternet" - stronger: ~32 ms latency, ~6 ms/block CPU, 13 MB ONNX model
+#   "none"          - skip AI denoising (high-pass + gate only)
+# DeepFilterNet needs onnxruntime + the model file; if either is missing the
+# pipeline prints why and falls back to RNNoise.
+DENOISER = "rnnoise"
+DENOISE_ENABLED = True            # master on/off for the AI denoiser (UI toggle)
+DENOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
+                                  # exposed live as the UI "strength" slider
+
+# DeepFilterNet3 ONNX model, relative to the repo root (see
+# scripts/fetch_deepfilternet.py to download it).
+DEEPFILTERNET_MODEL = "models/deepfilternet3/denoiser_model.onnx"
+
+# --- Noise meter (display only) ---------------------------------------------
+# Two readings the UI polls; see prism/meters.py. None of this touches audio.
+NOISE_METER_SPEECH_THRESHOLD = 0.5    # RNNoise VAD prob below this = "no speech"
+NOISE_METER_FLOOR_TAU_MS = 1500.0     # how slowly the room-noise reading adapts
+NOISE_METER_REDUCTION_TAU_MS = 250.0  # smoothing on the "noise removed" reading
 

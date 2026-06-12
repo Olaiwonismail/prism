@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prism — your mic, minus the noise</title>
+<meta name="description" content="Prism is open-source virtual audio middleware for Windows: real-time AI noise removal between your microphone and every app. CPU-only, low latency, MIT.">
+<meta property="og:title" content="Prism — your mic, minus the noise">
+<meta property="og:description" content="Open-source, CPU-only AI noise removal that shows up as a normal microphone in Discord, Zoom, OBS — anything.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2367e8f9'/%3E%3Cstop offset='.55' stop-color='%23a78bfa'/%3E%3Cstop offset='1' stop-color='%23f0abfc'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M16 4 L29 27 L3 27 Z' fill='none' stroke='url(%23g)' stroke-width='2.4' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<header class="hero">
+  <nav>
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 32 32" width="20" height="20" aria-hidden="true">
+        <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#67e8f9"/><stop offset=".55" stop-color="#a78bfa"/><stop offset="1" stop-color="#f0abfc"/>
+        </linearGradient></defs>
+        <path d="M16 4 L29 27 L3 27 Z" fill="none" stroke="url(#bg)" stroke-width="2.4" stroke-linejoin="round"/>
+      </svg>
+      prism
+    </a>
+    <div class="navlinks mono">
+      <a href="#roadmap">roadmap</a>
+      <a href="#releases">releases</a>
+      <a href="https://github.com/Olaiwonismail/prism" target="_blank" rel="noopener">github ↗</a>
+    </div>
+  </nav>
+
+  <h1 id="top">Your mic,<br><span class="grad">minus the noise.</span></h1>
+  <p class="sub">
+    Prism is open-source virtual audio middleware for Windows. It sits between
+    your microphone and every app, strips noise out with AI in real time, and
+    shows up as a normal mic in Discord, Zoom, OBS — anything.
+  </p>
+  <div class="cta">
+    <a class="btn primary" href="#releases">Get Prism</a>
+    <a class="btn" href="https://github.com/Olaiwonismail/prism" target="_blank" rel="noopener">View source</a>
+  </div>
+
+  <div class="wavebox">
+    <canvas id="wave" aria-hidden="true"></canvas>
+    <button id="filter-toggle" class="pill mono" aria-pressed="true" title="Toggle the demo filter">filtering · ON</button>
+  </div>
+  <p class="pipeline mono">mic → high-pass → AI denoise → noise gate → virtual cable</p>
+</header>
+
+<main>
+  <section class="facts" aria-label="Key facts">
+    <div class="fact"><span class="fact-n">CPU-only</span><span class="fact-d">no GPU required, ever</span></div>
+    <div class="fact"><span class="fact-n">10–32 ms</span><span class="fact-d">added latency, by model</span></div>
+    <div class="fact"><span class="fact-n">Zero config</span><span class="fact-d">one toggle, no audio degree</span></div>
+    <div class="fact"><span class="fact-n">MIT</span><span class="fact-d">open source, built in public</span></div>
+  </section>
+
+  <section id="features">
+    <h2>What it does</h2>
+    <div class="cards">
+      <div class="card">
+        <span class="chip done mono">live now</span>
+        <h3>AI noise removal</h3>
+        <p>Fans, keyboards, street noise — removed from under your voice while
+        you talk, not just between words. Two models: RNNoise when you want it
+        feather-light, DeepFilterNet3 when you want it gone. Switch live, dial
+        the strength, watch the meter.</p>
+      </div>
+      <div class="card">
+        <span class="chip next mono">phase 3 · next</span>
+        <h3>Voice isolation</h3>
+        <p>The harder problem: other <em>voices</em>. Roommates, TV, music in
+        the background — separate your voice from theirs so only you make it
+        into the call.</p>
+      </div>
+      <div class="card">
+        <span class="chip planned mono">phase 4 · planned</span>
+        <h3>Sound injection</h3>
+        <p>A soundboard wired straight into the mic stream. Hotkeys, per-sound
+        volume, no janky stereo-mix workarounds.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <h2>Roadmap</h2>
+    <div id="roadmap-body" class="md">
+      <p class="muted">Loading roadmap…
+        <a href="https://github.com/Olaiwonismail/prism/blob/main/roadmap.md" target="_blank" rel="noopener">(read it on GitHub)</a>
+      </p>
+    </div>
+  </section>
+
+  <section id="releases">
+    <h2>Releases &amp; devlog</h2>
+    <p class="muted">Each release ships with its changelog and the story of how
+    it got built — the dead ends included.</p>
+    <div id="releases-body">
+      <p class="muted">Loading releases…</p>
+    </div>
+  </section>
+</main>
+
+<template id="no-releases">
+  <div class="card buildbox">
+    <h3>No packaged releases yet</h3>
+    <p>Prism is early and moving fast. Until the first tagged release lands,
+    it runs from source — takes about two minutes:</p>
+    <pre class="mono"><code>git clone https://github.com/Olaiwonismail/prism
+cd prism
+python -m venv venv
+./venv/Scripts/pip install -r requirements.txt
+./venv/Scripts/python app.py</code></pre>
+    <p class="muted small">One-time setup: install
+    <a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener">VB-Audio Virtual Cable</a>
+    (run as admin, reboot). Want the stronger DeepFilterNet model? Fetch it with
+    <code>scripts/fetch_deepfilternet.py</code>.</p>
+  </div>
+</template>
+
+<footer>
+  <div class="footrow">
+    <span class="mono">MIT licensed</span>
+    <a href="https://github.com/Olaiwonismail/prism" target="_blank" rel="noopener" class="mono">github.com/Olaiwonismail/prism</a>
+  </div>
+  <p class="muted small">Prism routes audio through
+  <a href="https://vb-audio.com/Cable/" target="_blank" rel="noopener">VB-Audio Virtual Cable</a>
+  (installed separately). Built in the open — the devlog above is the real
+  working notes.</p>
+  <noscript><p class="muted">This page loads releases and the roadmap with
+  JavaScript. Everything is also readable in the
+  <a href="https://github.com/Olaiwonismail/prism">repository</a>.</p></noscript>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

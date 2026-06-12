@@ -1,0 +1,229 @@
+/* Prism landing — cold ink, one warm prism of light. */
+
+:root {
+  --bg: #0a0c10;
+  --bg-raise: #10141a;
+  --line: #1d242e;
+  --text: #e8eaee;
+  --muted: #98a1ac;
+  --faint: #6b7480;
+  --cyan: #67e8f9;
+  --violet: #a78bfa;
+  --magenta: #f0abfc;
+  --grad: linear-gradient(90deg, var(--cyan), var(--violet) 55%, var(--magenta));
+  --mono: ui-monospace, "Cascadia Code", Consolas, "JetBrains Mono", monospace;
+  --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --maxw: 880px;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Film grain so the dark feels like a material, not a void. */
+.grain {
+  position: fixed; inset: 0; z-index: 9; pointer-events: none; opacity: .045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.mono { font-family: var(--mono); font-size: .82em; letter-spacing: .01em; }
+.muted { color: var(--muted); }
+.small { font-size: .88em; }
+.grad {
+  background: var(--grad);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+
+h1, h2, h3 { font-family: var(--sans); font-weight: 700; letter-spacing: -0.015em; }
+
+a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line); transition: border-color .2s ease; }
+a:hover { border-color: var(--violet); }
+
+/* ---- Hero ------------------------------------------------------------- */
+
+.hero {
+  max-width: var(--maxw); margin: 0 auto; padding: 28px 24px 36px;
+}
+
+nav {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 72px;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--sans); font-weight: 700; font-size: 1.05rem;
+  border: none; letter-spacing: .02em;
+}
+.navlinks { display: flex; gap: 22px; }
+.navlinks a { color: var(--muted); border: none; }
+.navlinks a:hover { color: var(--text); }
+
+h1 {
+  font-size: clamp(2.7rem, 7.5vw, 4.4rem);
+  line-height: 1.04; margin: 0 0 22px;
+}
+
+.sub { max-width: 600px; color: var(--muted); margin: 0 0 30px; }
+
+.cta { display: flex; gap: 14px; margin-bottom: 56px; flex-wrap: wrap; }
+
+.btn {
+  display: inline-block; padding: 11px 22px; border-radius: 10px;
+  font-family: var(--sans); font-weight: 500; font-size: .95rem;
+  border: 1px solid var(--line); background: var(--bg-raise);
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.btn:hover { transform: translateY(-1px); border-color: #2c3542; }
+.btn.primary {
+  border: 1px solid transparent;
+  background: linear-gradient(var(--bg-raise), var(--bg-raise)) padding-box,
+              var(--grad) border-box;
+}
+.btn.primary:hover { box-shadow: 0 4px 24px -6px rgba(167, 139, 250, .35); }
+
+/* ---- Waveform hero visual --------------------------------------------- */
+
+.wavebox {
+  position: relative; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--bg-raise); overflow: hidden;
+}
+#wave { display: block; width: 100%; height: 230px; }
+.pill {
+  position: absolute; top: 12px; right: 12px;
+  padding: 6px 13px; border-radius: 999px; cursor: pointer;
+  color: var(--text); background: rgba(10, 12, 16, .75);
+  border: 1px solid var(--line);
+  transition: border-color .2s ease, color .2s ease;
+}
+.pill:hover { border-color: var(--violet); }
+.pill[aria-pressed="false"] { color: var(--faint); }
+
+.pipeline {
+  color: var(--faint); text-align: center; margin: 18px 0 0;
+}
+
+/* ---- Sections ---------------------------------------------------------- */
+
+main { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+section { margin: 88px 0; }
+
+h2 { font-size: 1.7rem; margin: 0 0 18px; }
+
+.facts {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: 14px;
+  overflow: hidden; margin-top: 64px;
+}
+.fact { background: var(--bg-raise); padding: 18px 20px; display: flex; flex-direction: column; gap: 3px; }
+.fact-n { font-family: var(--sans); font-weight: 700; font-size: 1.12rem; }
+.fact-d { color: var(--faint); font-size: .82rem; }
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card {
+  background: var(--bg-raise); border: 1px solid var(--line);
+  border-radius: 14px; padding: 22px;
+  transition: border-color .25s ease;
+}
+.card:hover { border-color: #2c3542; }
+.card h3 { margin: 14px 0 8px; font-size: 1.12rem; }
+.card p { margin: 0; color: var(--muted); font-size: .93rem; }
+
+.chip {
+  display: inline-block; padding: 3px 10px; border-radius: 999px;
+  font-size: .72rem; border: 1px solid var(--line); color: var(--faint);
+}
+.chip.done { color: var(--cyan); border-color: rgba(103, 232, 249, .3); }
+.chip.next { color: var(--violet); border-color: rgba(167, 139, 250, .35); }
+
+/* ---- Rendered markdown (roadmap, devlog, release notes) ----------------- */
+
+.md h1 { font-size: 1.35rem; margin: 0 0 14px; }
+.md h2 { font-size: 1.15rem; margin: 34px 0 6px; }
+.md h3 { font-size: 1rem; margin: 24px 0 6px; }
+.md p, .md li { color: var(--muted); font-size: .95rem; }
+.md ul { padding-left: 22px; }
+.md code {
+  font-family: var(--mono); font-size: .85em;
+  background: #161b23; border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 6px;
+}
+.md pre {
+  background: #0d1117; border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; overflow-x: auto;
+}
+.md pre code { background: none; border: none; padding: 0; font-size: .82rem; line-height: 1.6; }
+.md a { border-bottom: 1px solid var(--line); }
+
+.badge {
+  display: inline-block; padding: 2px 11px; border-radius: 999px;
+  font-family: var(--mono); font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .06em; border: 1px solid var(--line); color: var(--faint);
+}
+.badge.done { color: var(--cyan); border-color: rgba(103, 232, 249, .3); }
+.badge.next { color: var(--violet); border-color: rgba(167, 139, 250, .35); }
+
+/* ---- Releases ----------------------------------------------------------- */
+
+.release {
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--bg-raise); padding: 24px; margin-bottom: 18px;
+}
+.release-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.release-head h3 { margin: 0; font-size: 1.25rem; }
+.release-date { color: var(--faint); font-size: .8rem; }
+.assets { margin: 14px 0 4px; display: flex; gap: 10px; flex-wrap: wrap; }
+.asset {
+  font-family: var(--mono); font-size: .8rem; padding: 7px 14px;
+  border-radius: 8px; border: 1px solid var(--line); background: #0d1117;
+}
+.asset:hover { border-color: var(--cyan); }
+
+details.devlog { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+details.devlog summary {
+  cursor: pointer; font-family: var(--mono); font-size: .82rem;
+  color: var(--violet); list-style: none;
+}
+details.devlog summary::before { content: "▸ "; }
+details.devlog[open] summary::before { content: "▾ "; }
+details.devlog summary:hover { color: var(--magenta); }
+details.devlog .md { margin-top: 14px; }
+
+.buildbox pre {
+  background: #0d1117; border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px 18px; overflow-x: auto; font-size: .82rem; line-height: 1.7;
+}
+.buildbox code { font-family: var(--mono); }
+
+/* ---- Footer -------------------------------------------------------------- */
+
+footer {
+  max-width: var(--maxw); margin: 110px auto 0; padding: 28px 24px 44px;
+  border-top: 1px solid var(--line);
+}
+.footrow { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.footrow a, .footrow span { color: var(--muted); border: none; }
+.footrow a:hover { color: var(--text); }
+
+/* ---- Responsive ----------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .facts { grid-template-columns: repeat(2, 1fr); }
+  .cards { grid-template-columns: 1fr; }
+  nav { margin-bottom: 48px; }
+  section { margin: 64px 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn, .card, .pill { transition: none; }
+}

@@ -126,10 +126,80 @@ def check_rnnoise():
     assert np.array_equal(stage.process(block), block)
 
 
+def check_noise_meter():
+    """The room-floor reading should learn from non-speech frames, ignore
+    speech frames, and hold when there's no VAD; reduction tracks in-out gap."""
+    from prism.meters import NoiseMeter
+
+    block_ms = 1000.0 * N / FS
+
+    # Floor converges toward the input level seen on non-speech frames.
+    meter = NoiseMeter(block_ms, speech_threshold=0.5, floor_tau_ms=200.0)
+    for _ in range(200):
+        meter.update(in_db=-50.0, out_db=-80.0, speech_prob=0.1)  # noise only
+    print(f"noise meter  : floor={meter.noise_floor_db:.1f} dB "
+          f"reduction={meter.reduction_db:.1f} dB")
+    assert abs(meter.noise_floor_db - -50.0) < 1.0, "floor did not track noise"
+    assert abs(meter.reduction_db - 30.0) < 1.0, "reduction wrong (in-out gap)"
+
+    # A loud voice (high speech_prob) must not inflate the floor.
+    before = meter.noise_floor_db
+    for _ in range(200):
+        meter.update(in_db=-10.0, out_db=-12.0, speech_prob=0.95)
+    assert abs(meter.noise_floor_db - before) < 0.5, "speech leaked into floor"
+
+    # With no VAD (speech_prob=None) the floor holds rather than guessing.
+    held = meter.noise_floor_db
+    for _ in range(200):
+        meter.update(in_db=-10.0, out_db=-12.0, speech_prob=None)
+    assert meter.noise_floor_db == held, "floor moved without a VAD"
+
+
+def check_deepfilternet():
+    """DeepFilterNet attenuates broadband noise and honours the block contract.
+    Skips cleanly if onnxruntime or the model file isn't present."""
+    from prism.dsp.deepfilternet import DeepFilterNetDenoiser
+
+    try:
+        stage = DeepFilterNetDenoiser(config.DEEPFILTERNET_MODEL)
+    except OSError as exc:
+        print(f"DeepFilterNet unavailable -- skipping its checks ({exc}).")
+        return
+
+    rng = np.random.default_rng(0)
+    noise = (0.05 * rng.standard_normal(len(T))).astype(np.float32)
+    out = np.concatenate([stage.process(noise[i:i + N])
+                          for i in range(0, len(noise), N)])
+    in_rms, out_rms = rms(noise[len(T) // 2:]), rms(out[len(out) // 2:])
+    print(f"DFN noise   : in={in_rms:.4f}  out={out_rms:.4f}")
+    assert out_rms < in_rms * 0.5, "DeepFilterNet did not attenuate broadband noise"
+
+    # Block contract: same number of samples out per call, any block size --
+    # the 480->512 FIFO must not drop or duplicate samples.
+    for blocksize in (N, 1024, 160):
+        stage = DeepFilterNetDenoiser(config.DEEPFILTERNET_MODEL)
+        total_in = total_out = 0
+        for i in range(0, 48000, blocksize):
+            block = noise[i:i + blocksize]
+            o = stage.process(block)
+            assert len(o) == len(block), f"length broken at B={blocksize}"
+            assert o.dtype == np.float32
+            total_in += len(block)
+            total_out += len(o)
+        assert total_in == total_out
+
+    # Disabled stage must be a perfect passthrough.
+    stage = DeepFilterNetDenoiser(config.DEEPFILTERNET_MODEL, enabled=False)
+    block = noise[:N]
+    assert np.array_equal(stage.process(block), block)
+
+
 def main():
     check_phase1()
     check_gate_hold()
     check_rnnoise()
+    check_noise_meter()
+    check_deepfilternet()
     print("\nAll pipeline checks passed.")
 
 

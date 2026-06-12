@@ -6,3 +6,6 @@ sounddevice==0.5.5
 # Used only for the bundled rnnoise shared library (loaded via ctypes in
 # prism/dsp/rnnoise_denoise.py); its Python wrapper and heavy deps are unused.
 pyrnnoise==0.4.3
+# Optional: only needed for the "deepfilternet" denoiser (prism/config.py).
+# ~13 MB CPU wheel, no torch. Fetch the model with scripts/fetch_deepfilternet.py.
+onnxruntime==1.26.0
