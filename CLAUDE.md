@@ -85,8 +85,11 @@ scripts/
 tests/
   test_pipeline.py  # offline DSP/meter checks (no audio devices needed)
 roadmap.md          # phase statuses — single source of truth for the roadmap
-docs/               # landing page (GitHub Pages serves this folder; no build step)
-  index.html / style.css / app.js   # static site; pulls releases via GitHub API
+docs/               # static site (GitHub Pages serves this folder; no build step)
+  index.html        # product page: hero, use cases, how it works, comparison
+  roadmap/index.html   # renders roadmap.md as a phase list + detail panel
+  releases/index.html  # GitHub releases paired with devlog build notes
+  style.css / app.js   # shared by all pages; app.js inits per-page by element
   devlog/v*.md      # per-release build stories, paired to releases by version
   devlog.json       # manifest listing devlog entries the page should load
 ```

@@ -1,18 +1,19 @@
-/* Prism landing page.
+/* Prism site. One script shared by all pages, no build step; each page only
+ * runs the parts whose elements exist:
+ *   home      — hero canvas, smart "get latest" button, roadmap teaser
+ *   roadmap/  — phase list + detail panel rendered from roadmap.md
+ *   releases/ — releases from the GitHub API, paired by version with the
+ *               markdown build notes in docs/devlog/
  *
- * Three jobs, no build step:
- *   1. Hero canvas — a noisy waveform passes through a prism and comes out
- *      clean; the removed noise falls away as specks. Toggleable.
- *   2. Roadmap — fetched from roadmap.md (repo root locally, raw GitHub on
- *      Pages) and rendered with a tiny markdown converter.
- *   3. Releases & devlog — releases from the GitHub API, paired by version
- *      with the markdown stories in docs/devlog/.
+ * Pages set <body data-root> ("" at docs/, "../" one level down) so shared
+ * fetches resolve from any depth.
  */
 
 const OWNER = "Olaiwonismail";
 const REPO = "prism";
 const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/`;
+const ROOT = document.body.dataset.root || "";
 
 /* ---- tiny markdown renderer (for content we write ourselves) ---------- */
 
@@ -86,31 +87,99 @@ async function fetchFirst(urls) {
   return null;
 }
 
-/* ---- roadmap ----------------------------------------------------------- */
+/* ---- roadmap: phase list on the left, detail panel on the right --------- */
+
+function parseRoadmap(text) {
+  // Drop the file's own H1 + intro; split the rest into ## phase sections.
+  const body = text.replace(/^# .*\n+([^\n#][^\n]*\n+)*/, "");
+  const phases = [];
+  for (const chunk of body.split(/^## +/m).slice(1)) {
+    const nl = chunk.indexOf("\n");
+    const title = chunk.slice(0, nl).trim();
+    const rest = chunk.slice(nl + 1);
+    const sm = rest.match(/Status: *([a-z ]+)/i);
+    const tm = title.match(/^(Phase \d+)\s*[—–-]+\s*(.*)$/i);
+    phases.push({
+      num: tm ? tm[1] : title,
+      name: tm ? tm[2] : "",
+      status: sm ? sm[1].trim().toLowerCase() : "planned",
+      detail: rest.replace(/Status:[^\n]*\n?/i, "").trim(),
+    });
+  }
+  return phases;
+}
+
+function statusCls(s) {
+  return /done/.test(s) ? "done" : /next|progress/.test(s) ? "next" : "planned";
+}
+
+/* roadmap.md lives at the repo root: one level above docs/ locally, which is
+ * above the web root on GitHub Pages — hence the raw.githubusercontent fallback. */
+function fetchRoadmap() {
+  return fetchFirst([ROOT + "../roadmap.md", RAW + "roadmap.md"]);
+}
 
 async function loadRoadmap() {
   const el = document.getElementById("roadmap-body");
-  const text = await fetchFirst(["../roadmap.md", RAW + "roadmap.md"]);
+  const text = await fetchRoadmap();
   if (!text) {
     el.innerHTML = `<p class="muted">Couldn't load the roadmap here — ` +
       `<a href="${REPO_URL}/blob/main/roadmap.md" target="_blank" rel="noopener">read it on GitHub</a>.</p>`;
     return;
   }
-  // Drop the file's own H1 + intro line; the section already has a heading.
-  const body = text.replace(/^# .*\n+([^\n#][^\n]*\n+)*/, "");
-  el.innerHTML = badge(md(body));
+  const phases = parseRoadmap(text);
+  if (phases.length < 2) { // structure changed: fall back to a plain render
+    el.innerHTML = badge(md(text.replace(/^# .*\n/, "")));
+    return;
+  }
+
+  el.innerHTML = `<div class="roadmap-grid">
+    <div class="phase-list">${phases.map((p, i) => `
+      <button class="phase-item ${statusCls(p.status)}" data-i="${i}">
+        <span class="phase-ico" aria-hidden="true"></span>
+        <span class="phase-label">
+          <span class="mono phase-num">${esc(p.num.toLowerCase())}</span>
+          ${esc(p.name)}
+        </span>
+        <span class="phase-go" aria-hidden="true">&#9656;</span>
+      </button>`).join("")}
+    </div>
+    <div class="phase-panel"></div>
+  </div>`;
+
+  const items = el.querySelectorAll(".phase-item");
+  const panel = el.querySelector(".phase-panel");
+
+  function select(i) {
+    items.forEach((b, j) => {
+      b.classList.toggle("active", i === j);
+      if (i === j) b.setAttribute("aria-current", "true");
+      else b.removeAttribute("aria-current");
+    });
+    const p = phases[i];
+    panel.innerHTML = `<div class="phase-head">
+        <h3>${esc(p.name || p.num)}</h3>
+        <span class="badge ${statusCls(p.status)}">${esc(p.status)}</span>
+      </div>
+      <div class="md">${md(p.detail)}</div>`;
+  }
+
+  items.forEach((b) => b.addEventListener("click", () => select(+b.dataset.i)));
+  // Land on the phase that's up next — that's where the project lives now.
+  const next = phases.findIndex((p) => statusCls(p.status) === "next");
+  select(next >= 0 ? next : 0);
 }
 
 /* ---- releases & devlog -------------------------------------------------- */
 
 async function loadDevlogs() {
   try {
-    const r = await fetch("devlog.json");
+    const r = await fetch(ROOT + "devlog.json");
     if (!r.ok) return new Map();
     const { entries } = await r.json();
     const logs = new Map();
     for (const v of entries) {
-      const text = await fetchFirst([`devlog/${v}.md`, RAW + `docs/devlog/${v}.md`]);
+      const text = await fetchFirst([ROOT + `devlog/${v}.md`, RAW + `docs/devlog/${v}.md`]);
       if (text) logs.set(v, text);
     }
     return logs;
@@ -119,7 +188,7 @@ async function loadDevlogs() {
 
 function devlogDetails(version, text, open) {
   return `<details class="devlog"${open ? " open" : ""}>
-    <summary>devlog — the story behind ${version}</summary>
+    <summary>devlog · build notes for ${version}</summary>
     <div class="md">${md(text.replace(/^# .*\n/, ""))}</div>
   </details>`;
 }
@@ -134,6 +203,10 @@ function fmtSize(bytes) {
   return bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.round(bytes / 1e3)} KB`;
 }
 
+/* Master-detail, same bones as the roadmap: versions down the left rail,
+ * the selected release (changelog, downloads, build notes) in the panel.
+ * Unreleased devlog entries sit on top of the rail marked "in progress";
+ * the newest real release is selected by default. */
 async function loadReleases() {
   const el = document.getElementById("releases-body");
   const logs = await loadDevlogs();
@@ -144,43 +217,71 @@ async function loadReleases() {
     if (r.ok) releases = await r.json();
   } catch (e) { /* offline or rate-limited: fall through to empty state */ }
 
-  const parts = [];
-
+  const released = new Set(releases.map(r => r.tag_name));
+  const entries = [];
+  for (const [version, log] of logs) {
+    if (!released.has(version)) entries.push({ kind: "wip", version, log });
+  }
   for (const rel of releases) {
-    const tag = rel.tag_name || "";
+    entries.push({ kind: "release", rel, log: logs.get(rel.tag_name) || null });
+  }
+
+  const buildbox = releases.length ? ""
+    : document.getElementById("no-releases").innerHTML;
+  if (!entries.length) { el.innerHTML = buildbox; return; }
+
+  el.innerHTML = `${buildbox}
+  <div class="roadmap-grid">
+    <div class="phase-list">${entries.map((e, i) => {
+      const wip = e.kind === "wip";
+      return `<button class="phase-item ${wip ? "planned" : "done"}" data-i="${i}">
+        <span class="phase-ico" aria-hidden="true"></span>
+        <span class="phase-label">
+          <span class="mono phase-num">${esc(wip ? "in progress" : fmtDate(e.rel.published_at))}</span>
+          ${esc(wip ? e.version : e.rel.tag_name || e.rel.name)}
+        </span>
+        <span class="phase-go" aria-hidden="true">&#9656;</span>
+      </button>`;
+    }).join("")}
+    </div>
+    <div class="phase-panel"></div>
+  </div>`;
+
+  const items = el.querySelectorAll(".phase-item");
+  const panel = el.querySelector(".phase-panel");
+  const latest = entries.findIndex(e => e.kind === "release");
+
+  function show(i) {
+    items.forEach((b, j) => {
+      b.classList.toggle("active", i === j);
+      if (i === j) b.setAttribute("aria-current", "true");
+      else b.removeAttribute("aria-current");
+    });
+    const e = entries[i];
+    if (e.kind === "wip") {
+      // No release to pair with yet: the build notes are the whole story.
+      panel.innerHTML = `<div class="phase-head">
+          <h3>${esc(e.version)}</h3>
+          <span class="chip next mono">in progress · unreleased</span>
+        </div>
+        <div class="md">${md(e.log.replace(/^# .*\n/, ""))}</div>`;
+      return;
+    }
+    const rel = e.rel;
     const assets = (rel.assets || []).map(a =>
       `<a class="asset" href="${a.browser_download_url}">${esc(a.name)} · ${fmtSize(a.size)}</a>`
     ).join("");
-    parts.push(`<article class="release">
-      <div class="release-head">
-        <h3>${esc(rel.name || tag)}</h3>
-        <span class="release-date mono">${tag} · ${fmtDate(rel.published_at)}</span>
+    panel.innerHTML = `<div class="phase-head">
+        <h3>${esc(rel.name || rel.tag_name)}</h3>
+        <span class="release-date mono">${i === latest ? "latest · " : ""}${esc(rel.tag_name)} · ${fmtDate(rel.published_at)}</span>
       </div>
-      <div class="md">${md(rel.body || "")}</div>
+      <div class="md">${rel.body ? md(rel.body) : '<p class="muted">No notes for this release.</p>'}</div>
       ${assets ? `<div class="assets">${assets}</div>` : ""}
-      ${logs.has(tag) ? devlogDetails(tag, logs.get(tag), false) : ""}
-    </article>`);
-    logs.delete(tag);
+      ${e.log ? devlogDetails(rel.tag_name, e.log, false) : ""}`;
   }
 
-  if (!releases.length) {
-    parts.push(document.getElementById("no-releases").innerHTML);
-  }
-
-  // Devlog entries with no matching release yet: the work-in-progress story.
-  let first = !releases.length;
-  for (const [version, text] of logs) {
-    parts.push(`<article class="release">
-      <div class="release-head">
-        <h3>${esc(version)}</h3>
-        <span class="chip next mono">in progress · unreleased</span>
-      </div>
-      ${devlogDetails(version, text, first)}
-    </article>`);
-    first = false;
-  }
-
-  el.innerHTML = parts.join("\n");
+  items.forEach(b => b.addEventListener("click", () => show(+b.dataset.i)));
+  show(latest >= 0 ? latest : 0);
 }
 
 /* ---- hero canvas: noise in, signal out ---------------------------------- */
@@ -190,6 +291,29 @@ function heroWave() {
   const toggle = document.getElementById("filter-toggle");
   const ctx = canvas.getContext("2d");
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Per-theme canvas palette; the light set is darkened to hold contrast
+  // against paper the way the dark set glows against ink.
+  const PAL = {
+    dark: {
+      raw: "rgba(150,160,172,.5)",
+      prism: "rgba(232,234,238,.5)",
+      prismGlow: "rgba(111,201,216,.22)",
+      waveGlow: "rgba(155,144,212,.4)",
+      speck: "150,160,172",
+      stops: ["#6fc9d8", "#9b90d4", "#d3a3d9"],
+    },
+    light: {
+      raw: "rgba(90,100,112,.55)",
+      prism: "rgba(40,46,54,.45)",
+      prismGlow: "rgba(44,122,135,.16)",
+      waveGlow: "rgba(91,102,160,.28)",
+      speck: "90,100,112",
+      stops: ["#2f97ab", "#6f68bd", "#a87fae"],
+    },
+  };
+  const pal = () =>
+    PAL[document.documentElement.dataset.theme === "light" ? "light" : "dark"];
 
   let filtered = true;
   let W = 0, H = 0, t = 0;
@@ -220,18 +344,19 @@ function heroWave() {
     ctx.strokeStyle = stroke;
     ctx.lineWidth = width;
     ctx.shadowBlur = glow || 0;
-    ctx.shadowColor = glow ? "rgba(167,139,250,.55)" : "transparent";
+    ctx.shadowColor = glow ? pal().waveGlow : "transparent";
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
+    const P = pal();
     const cx = W / 2, side = Math.min(74, H * 0.34);
     const pL = cx - side * 0.62, pR = cx + side * 0.62;
 
     // Incoming: signal + noise, in gray.
-    trace(0, pL, x => wave(x, t) + noise(x, t), "rgba(150,160,172,.5)", 1.6);
+    trace(0, pL, x => wave(x, t) + noise(x, t), P.raw, 1.6);
 
     // The prism.
     ctx.beginPath();
@@ -239,22 +364,22 @@ function heroWave() {
     ctx.lineTo(cx + side * 0.62, H / 2 + side * 0.55);
     ctx.lineTo(cx - side * 0.62, H / 2 + side * 0.55);
     ctx.closePath();
-    ctx.strokeStyle = "rgba(232,234,238,.55)";
+    ctx.strokeStyle = P.prism;
     ctx.lineWidth = 1.4;
-    ctx.shadowBlur = 16;
-    ctx.shadowColor = "rgba(103,232,249,.35)";
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = P.prismGlow;
     ctx.stroke();
     ctx.shadowBlur = 0;
 
     // Outgoing: clean spectrum-lit signal, or untouched noise when off.
     if (filtered) {
       const grad = ctx.createLinearGradient(pR, 0, W, 0);
-      grad.addColorStop(0, "#67e8f9");
-      grad.addColorStop(0.55, "#a78bfa");
-      grad.addColorStop(1, "#f0abfc");
-      trace(pR, W, x => wave(x, t), grad, 2, 14);
+      grad.addColorStop(0, P.stops[0]);
+      grad.addColorStop(0.55, P.stops[1]);
+      grad.addColorStop(1, P.stops[2]);
+      trace(pR, W, x => wave(x, t), grad, 2, 10);
     } else {
-      trace(pR, W, x => wave(x, t) + noise(x, t), "rgba(150,160,172,.5)", 1.6);
+      trace(pR, W, x => wave(x, t) + noise(x, t), P.raw, 1.6);
     }
 
     // The removed noise falls away beneath the prism as fading specks.
@@ -271,7 +396,7 @@ function heroWave() {
       const s = specks[i];
       s.x += s.vx; s.y += s.vy; s.a -= 0.006;
       if (s.a <= 0 || s.y > H) { specks.splice(i, 1); continue; }
-      ctx.fillStyle = `rgba(150,160,172,${s.a})`;
+      ctx.fillStyle = `rgba(${pal().speck},${s.a})`;
       ctx.fillRect(s.x, s.y, 2, 2);
     }
   }
@@ -290,10 +415,70 @@ function heroWave() {
   });
 
   addEventListener("resize", () => { resize(); if (reduced) draw(); });
+  // The animation loop picks theme changes up next frame; the static
+  // reduced-motion canvas needs an explicit repaint.
+  addEventListener("themechange", () => { if (reduced) draw(); });
   resize();
   if (reduced) { t = 4; draw(); } else { frame(); }
 }
 
-heroWave();
-loadRoadmap();
-loadReleases();
+/* ---- light/dark toggle ---------------------------------------------------- */
+
+function initTheme() {
+  const btn = document.getElementById("theme-toggle");
+  const root = document.documentElement;
+  const paint = () => {
+    const light = root.dataset.theme === "light";
+    btn.textContent = light ? "☾" : "☀";
+    const label = light ? "Switch to dark mode" : "Switch to light mode";
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+  };
+  btn.addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+    try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+    paint();
+    dispatchEvent(new Event("themechange"));
+  });
+  paint();
+}
+
+/* ---- home page extras ---------------------------------------------------- */
+
+/* "Get the latest version": once a release exists, the button names it and
+ * links straight to the download (single asset) or the release page. */
+async function loadLatestButton() {
+  const btn = document.getElementById("get-latest");
+  try {
+    const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`);
+    if (!r.ok) return; // no releases yet: keep pointing at the releases page
+    const rel = await r.json();
+    btn.textContent = `Get Prism ${rel.tag_name}`;
+    btn.href = (rel.assets || []).length === 1
+      ? rel.assets[0].browser_download_url
+      : "releases/";
+  } catch (e) { /* offline: the default link is already right */ }
+}
+
+/* One line of momentum above the bottom CTA, read from the roadmap. */
+async function loadTeaser() {
+  const el = document.getElementById("roadmap-teaser");
+  const text = await fetchRoadmap();
+  if (!text) return; // the static fallback line is already in the HTML
+  const phases = parseRoadmap(text);
+  const done = phases.filter(p => statusCls(p.status) === "done");
+  const next = phases.find(p => statusCls(p.status) === "next");
+  if (!done.length || !next) return;
+  el.innerHTML = `${done.length} of ${phases.length} phases shipped. ` +
+    `Up next: ${esc(next.name.toLowerCase() || next.num)}. ` +
+    `<a href="roadmap/">See the roadmap →</a>`;
+}
+
+/* ---- per-page init: run only what exists on this page -------------------- */
+
+if (document.getElementById("theme-toggle")) initTheme();
+if (document.getElementById("wave")) heroWave();
+if (document.getElementById("get-latest")) loadLatestButton();
+if (document.getElementById("roadmap-teaser")) loadTeaser();
+if (document.getElementById("roadmap-body")) loadRoadmap();
+if (document.getElementById("releases-body")) loadReleases();

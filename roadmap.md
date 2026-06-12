@@ -43,3 +43,9 @@ Status: planned
 
 Tauri desktop UI (tray icon, device picker, level visualizer), packaged
 Windows `.exe`, Linux AppImage/.deb.
+
+Website tasks parked until the pieces exist:
+
+- Before/after audio demo on the landing page: record a clip with real
+  background noise, process it through the pipeline offline, embed both.
+- App screenshots, once the new UI is worth photographing.
