@@ -94,8 +94,8 @@ class AudioEngine:
         self._stream = None
         self._denoise_enabled = config.DENOISE_ENABLED
         self._denoise_mix = config.DENOISE_MIX
-        self._denoiser_choice = config.DENOISER  # "rnnoise" | "deepfilternet" | "none"
-        self._denoiser = None  # the active denoiser stage (RNNoise or DeepFilterNet)
+        self._denoiser_choice = config.DENOISER  # "rnnoise" | "gtcrn" | "deepfilternet" | "none"
+        self._denoiser = None  # the active denoiser stage (RNNoise / GTCRN / DeepFilterNet)
         self._meter = None
 
     @property

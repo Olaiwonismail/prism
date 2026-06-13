@@ -17,11 +17,12 @@ the UI work.
 
 Status: done
 
-Two swappable denoisers behind one interface: **RNNoise** (light, ~10 ms
-added latency) and **DeepFilterNet3** (stronger, ~32 ms), both CPU-only.
-DeepFilterNet runs through ONNX Runtime — no GPU, no PyTorch, a 13 MB model.
-Models switch live from the UI, a strength slider blends dry/wet, and a
-noise meter shows the room's noise floor plus how much is being removed.
+Three swappable denoisers behind one interface: **RNNoise** (light, ~10 ms
+added latency), **GTCRN** (ultra-light neural — a tiny ~0.5 MB model, very low
+CPU, ~40 ms), and **DeepFilterNet3** (stronger, ~32 ms), all CPU-only. The
+neural ONNX models run through ONNX Runtime — no GPU, no PyTorch. Models switch
+live from the UI, a strength slider blends dry/wet, and a noise meter shows the
+room's noise floor plus how much is being removed.
 
 ## Phase 3 — Voice isolation
 
@@ -30,14 +31,8 @@ Status: next
 Separate *your* voice from background voices, music, and TV: Silero VAD
 (~5 ms) for speech detection plus a streaming source-separation stage.
 
-## Phase 4 — Sound injection
 
-Status: planned
-
-Soundboard: play clips into the mic stream, with hotkeys and per-sound
-volume.
-
-## Phase 5 — UI & distribution
+## Phase 4 — UI & distribution
 
 Status: planned
 

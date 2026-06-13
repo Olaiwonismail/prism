@@ -6,6 +6,7 @@ from . import config
 from .dsp.highpass import HighPassFilter
 from .dsp.noise_gate import NoiseGate
 from .dsp.deepfilternet import DeepFilterNetDenoiser
+from .dsp.gtcrn import GTCRNDenoiser
 
 try:
     from .dsp.rnnoise_denoise import RNNoiseDenoiser
@@ -61,6 +62,12 @@ def build_denoiser(choice=None):
                                          mix=config.DENOISE_MIX)
         except OSError as exc:
             print(f"DeepFilterNet unavailable, falling back to RNNoise: {exc}")
+        return _build_rnnoise()
+    if choice == "gtcrn":
+        try:
+            return GTCRNDenoiser(config.GTCRN_MODEL, mix=config.DENOISE_MIX)
+        except OSError as exc:
+            print(f"GTCRN unavailable, falling back to RNNoise: {exc}")
         return _build_rnnoise()
     return _build_rnnoise()
 

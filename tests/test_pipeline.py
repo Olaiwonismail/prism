@@ -194,12 +194,53 @@ def check_deepfilternet():
     assert np.array_equal(stage.process(block), block)
 
 
+def check_gtcrn():
+    """GTCRN attenuates broadband noise and honours the block contract despite
+    its internal 48<->16 kHz resampling. Skips if onnxruntime or the model file
+    isn't present."""
+    from prism.dsp.gtcrn import GTCRNDenoiser
+
+    try:
+        stage = GTCRNDenoiser(config.GTCRN_MODEL)
+    except OSError as exc:
+        print(f"GTCRN unavailable -- skipping its checks ({exc}).")
+        return
+
+    rng = np.random.default_rng(0)
+    noise = (0.05 * rng.standard_normal(len(T))).astype(np.float32)
+    out = np.concatenate([stage.process(noise[i:i + N])
+                          for i in range(0, len(noise), N)])
+    in_rms, out_rms = rms(noise[len(T) // 2:]), rms(out[len(out) // 2:])
+    print(f"GTCRN noise : in={in_rms:.4f}  out={out_rms:.4f}")
+    assert out_rms < in_rms * 0.5, "GTCRN did not attenuate broadband noise"
+
+    # Block contract: same number of samples out per call, any block size --
+    # the resamplers + 16 kHz STFT FIFO must not drop or duplicate samples.
+    for blocksize in (N, 1024, 160):
+        stage = GTCRNDenoiser(config.GTCRN_MODEL)
+        total_in = total_out = 0
+        for i in range(0, 48000, blocksize):
+            block = noise[i:i + blocksize]
+            o = stage.process(block)
+            assert len(o) == len(block), f"length broken at B={blocksize}"
+            assert o.dtype == np.float32
+            total_in += len(block)
+            total_out += len(o)
+        assert total_in == total_out
+
+    # Disabled stage must be a perfect passthrough.
+    stage = GTCRNDenoiser(config.GTCRN_MODEL, enabled=False)
+    block = noise[:N]
+    assert np.array_equal(stage.process(block), block)
+
+
 def main():
     check_phase1()
     check_gate_hold()
     check_rnnoise()
     check_noise_meter()
     check_deepfilternet()
+    check_gtcrn()
     print("\nAll pipeline checks passed.")
 
 

@@ -17,7 +17,14 @@ _POLL_MS = 50           # UI refresh interval (~20 fps)
 _REDUCTION_MAX_DB = 40.0  # full-scale of the "noise removed" bar
 
 # Denoiser models offered in the picker: (display label, config.DENOISER value).
-_DENOISER_OPTIONS = [("RNNoise", "rnnoise"), ("DeepFilterNet", "deepfilternet")]
+_DENOISER_OPTIONS = [
+    ("RNNoise", "rnnoise"),
+    ("GTCRN", "gtcrn"),
+    ("DeepFilterNet", "deepfilternet"),
+]
+# Map a loaded stage's .name back to its picker label (see _active_model_label).
+_NAME_TO_LABEL = {"RNNoise": "RNNoise", "GTCRN": "GTCRN",
+                  "DeepFilterNet3": "DeepFilterNet"}
 
 
 def _preselect_index(devices, current_name):
@@ -93,7 +100,7 @@ def run_ui(engine):
     strength_caption.set(f"{int(round(engine.denoiser_mix * 100.0))}%")
 
     def _active_model_label():
-        return "DeepFilterNet" if "DeepFilter" in engine.denoiser_name else "RNNoise"
+        return _NAME_TO_LABEL.get(engine.denoiser_name, "RNNoise")
 
     def on_model_selected(_event):
         label = model_combo.get()

@@ -450,9 +450,12 @@ function initTheme() {
 async function loadLatestButton() {
   const btn = document.getElementById("get-latest");
   try {
-    const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`);
+    // /releases/latest skips prereleases; the list endpoint includes them, so
+    // take the newest non-draft so early prerelease builds still surface here.
+    const r = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/releases`);
     if (!r.ok) return; // no releases yet: keep pointing at the releases page
-    const rel = await r.json();
+    const rel = (await r.json()).find(x => !x.draft);
+    if (!rel) return;
     btn.textContent = `Get Prism ${rel.tag_name}`;
     btn.href = (rel.assets || []).length === 1
       ? rel.assets[0].browser_download_url

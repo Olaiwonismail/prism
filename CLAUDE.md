@@ -25,9 +25,10 @@ non-technical users (gamers, party chat, remote workers, streamers).
 
 Early/MVP. **Phase 1 functional, Phase 2 largely complete**: mic capture →
 high-pass → AI denoiser → noise gate → virtual cable routing. The denoiser is
-**swappable** (`config.DENOISER`): RNNoise (light default) or DeepFilterNet3
-(stronger, heavier). The UI adds a live **strength** slider (dry/wet) and a
-**noise meter** (room-noise floor + how much is being stripped).
+**swappable** (`config.DENOISER`): RNNoise (light default), GTCRN (ultra-light
+neural, tiny model), or DeepFilterNet3 (stronger, heavier). The UI adds a live
+**strength** slider (dry/wet) and a **noise meter** (room-noise floor + how much
+is being stripped).
 
 ```
 physical mic → [high-pass → AI denoiser → noise gate] → CABLE Input (VB-Audio)
@@ -61,9 +62,22 @@ hence the "stronger but heavier" positioning. The 13 MB model isn't committed;
 fetch it with `scripts/fetch_deepfilternet.py`. If onnxruntime or the model is
 missing, `build_denoiser()` prints why and falls back to RNNoise.
 
-Both denoiser stages set `IS_DENOISER = True` and expose `.enabled`, `.mix`,
-and `.name`, so the engine finds and drives whichever one is active without
-caring about its type.
+GTCRN notes ([prism/dsp/gtcrn.py](prism/dsp/gtcrn.py)): a tiny ~48 K-param,
+~0.5 MB ONNX model — the lightest-CPU neural option. Unlike the other two it
+runs at **16 kHz with the STFT outside the model**, so the stage owns the bits
+they don't: stateful 48↔16 kHz resampling (clean 3:1, anti-alias FIRs) and a
+streaming STFT/overlap-add (512 fft, 256 hop, sqrt-Hann; COLA so plain OLA
+reconstructs) wrapped around the model's three per-frame cache tensors. The
+model is frame-synchronous (no latency of its own); the FIR group delay (~3 ms)
+and the STFT fill (~30 ms) are measured once at import to size the wet FIFO
+pre-fill and the dry delay line — so it keeps the block contract and stays
+phase-aligned for partial `mix`. Total latency ~40 ms but very low CPU. Model
+isn't committed; fetch with `scripts/fetch_gtcrn.py`. Missing onnxruntime/model
+→ `build_denoiser()` falls back to RNNoise.
+
+All three denoiser stages set `IS_DENOISER = True` and expose `.enabled`,
+`.mix`, and `.name`, so the engine finds and drives whichever one is active
+without caring about its type.
 
 ### Layout
 
@@ -80,8 +94,10 @@ prism/
     noise_gate.py   # NoiseGate — RMS gate with attack/release smoothing
     rnnoise_denoise.py  # RNNoiseDenoiser — neural denoiser (ctypes -> rnnoise.dll)
     deepfilternet.py    # DeepFilterNetDenoiser — DFN3 streaming via onnxruntime
+    gtcrn.py            # GTCRNDenoiser — ultra-light 16 kHz NN (onnxruntime + resample)
 scripts/
   fetch_deepfilternet.py  # download the DFN3 ONNX model into models/ (one-time)
+  fetch_gtcrn.py          # download the GTCRN ONNX model into models/ (one-time)
 tests/
   test_pipeline.py  # offline DSP/meter checks (no audio devices needed)
 roadmap.md          # phase statuses — single source of truth for the roadmap
@@ -124,9 +140,9 @@ reboot). Whether to bundle vs. user-install is an open question (see PRD §13).
 `docs/` renders it directly — update statuses there, not here). Summary:
 1. **Core pipeline** (current) — mic capture, virtual cable routing, high-pass
    filter, noise gate, device auto-detect, system tray.
-2. **AI noise removal** (done) — RNNoise (~10ms) + DeepFilterNet3 (~32ms),
-   swappable via `config.DENOISER`; adjustable level (strength slider) and
-   noise meter both shipped.
+2. **AI noise removal** (done) — RNNoise (~10ms) + GTCRN (~40ms, ultra-light) +
+   DeepFilterNet3 (~32ms), swappable via `config.DENOISER`; adjustable level
+   (strength slider) and noise meter both shipped.
 3. **Voice isolation** — Silero VAD (~5ms) for speech detection + Demucs v4
    (streaming) to separate user's voice from background voices/music/TV.
 4. **Sound injection** — soundboard, hotkeys, per-sound volume.
@@ -142,7 +158,7 @@ Intended signal-chain order once built:
 |---|---|
 | Audio I/O | `sounddevice` (PortAudio) |
 | Signal processing | `numpy`, `scipy` |
-| AI models | RNNoise, DeepFilterNet, Silero VAD, Demucs v4 |
+| AI models | RNNoise, GTCRN, DeepFilterNet, Silero VAD, Demucs v4 |
 | Virtual device | VB-Audio Virtual Cable |
 | Desktop UI (later) | Tauri (Rust + HTML/CSS/JS) |
 | Languages | Python (backend), Rust (UI shell) |

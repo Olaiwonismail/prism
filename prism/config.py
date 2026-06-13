@@ -40,10 +40,12 @@ NOISE_GATE_HOLD_MS = 200.0        # stays fully open this long after speech
 # --- AI noise removal --------------------------------------------------------
 # Which denoiser runs in the pipeline:
 #   "rnnoise"       - light: ~10 ms latency, ~1 ms/block CPU, bundled in a wheel
+#   "gtcrn"         - ultra-light NN: tiny ~0.5 MB ONNX model, very low CPU; runs
+#                     at 16 kHz so it resamples internally (~40 ms latency)
 #   "deepfilternet" - stronger: ~32 ms latency, ~6 ms/block CPU, 13 MB ONNX model
 #   "none"          - skip AI denoising (high-pass + gate only)
-# DeepFilterNet needs onnxruntime + the model file; if either is missing the
-# pipeline prints why and falls back to RNNoise.
+# The ONNX denoisers need onnxruntime + their model file; if either is missing
+# the pipeline prints why and falls back to RNNoise.
 DENOISER = "rnnoise"
 DENOISE_ENABLED = True            # master on/off for the AI denoiser (UI toggle)
 DENOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
@@ -52,6 +54,10 @@ DENOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
 # DeepFilterNet3 ONNX model, relative to the repo root (see
 # scripts/fetch_deepfilternet.py to download it).
 DEEPFILTERNET_MODEL = "models/deepfilternet3/denoiser_model.onnx"
+
+# GTCRN streaming ONNX model, relative to the repo root (see
+# scripts/fetch_gtcrn.py to download it).
+GTCRN_MODEL = "models/gtcrn/gtcrn_simple.onnx"
 
 # --- Noise meter (display only) ---------------------------------------------
 # Two readings the UI polls; see prism/meters.py. None of this touches audio.
