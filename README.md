@@ -22,7 +22,7 @@ Open source, Windows-first, **runs on your CPU — no GPU needed.**
 
 Most "clean up my mic" tools are closed-source, GPU-hungry, or do only one
 thing. Prism aims to be the **one open-source tool** that combines noise
-removal, voice isolation, and sound injection in a single pipeline — built for
+removal and voice isolation in a single pipeline — built for
 non-technical users (gamers, party chat, remote workers, streamers).
 
 Design principles that guide every decision:
@@ -174,8 +174,7 @@ in [prism/pipeline.py](prism/pipeline.py) — the audio callback stays untouched
    (~32 ms), switchable live, strength slider, noise meter.
 3. **Voice isolation** *(next)* — Silero VAD for speech detection + Demucs v4 to
    separate your voice from background voices, music, and TV.
-4. **Sound injection** — soundboard, hotkeys, per-sound volume.
-5. **UI & distribution** — Tauri desktop UI, tray icon, device picker, level
+4. **UI & distribution** — Tauri desktop UI, tray icon, device picker, level
    visualizer; Windows `.exe` + Linux AppImage/`.deb`.
 
 Today's chain is `mic → high-pass → AI denoiser → noise gate → cable`; the
