@@ -195,6 +195,10 @@ h2 { font-size: 1.7rem; margin: 0 0 18px; }
 .card h3 { margin: 14px 0 8px; font-size: 1.12rem; }
 .card p { margin: 0; color: var(--muted); font-size: .93rem; }
 
+/* Audio demo: two players side by side, before vs. after. */
+.demo-cards { grid-template-columns: repeat(2, 1fr); margin-top: 18px; }
+.demo-cards audio { width: 100%; margin-top: 6px; }
+
 .chip {
   display: inline-block; padding: 3px 10px; border-radius: 999px;
   font-size: .72rem; border: 1px solid var(--line); color: var(--faint);
