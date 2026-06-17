@@ -511,21 +511,6 @@ function encodeWav(samples, sampleRate) {
   return new Blob([view], { type: "audio/wav" });
 }
 
-/* Decode a recorded blob to a mono Float32 WAV the API can read. */
-async function blobToWav(blob) {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
-  const n = audio.length;
-  const mono = new Float32Array(n);
-  for (let ch = 0; ch < audio.numberOfChannels; ch++) {
-    const data = audio.getChannelData(ch);
-    for (let i = 0; i < n; i++) mono[i] += data[i] / audio.numberOfChannels;
-  }
-  const wav = encodeWav(mono, audio.sampleRate);
-  ctx.close();
-  return wav;
-}
-
 function initTryIt() {
   const card = document.querySelector(".try-card");
   const recordBtn = document.getElementById("try-record");
@@ -540,8 +525,11 @@ function initTryIt() {
   const outAudio = document.getElementById("try-out");
   const download = document.getElementById("try-download");
 
-  let recorder = null, chunks = [], take = null, recording = false;
+  let take = null, recording = false;
   let ticker = null, startedAt = 0;
+  // Web Audio capture graph (built per recording, torn down on stop).
+  let micStream = null, audioCtx = null, source = null, processor = null, mute = null;
+  let pcm = [], pcmLen = 0, captureRate = 48000;
   const say = (msg) => { status.textContent = msg; };
   const setState = (s) => { card.dataset.state = s; };
 
@@ -550,6 +538,9 @@ function initTryIt() {
     timerEl.textContent = fmt(Math.floor((Date.now() - startedAt) / 1000));
   }
 
+  // Capture raw PCM straight off the mic instead of recording webm and decoding
+  // it back: MediaRecorder blobs lack a duration header and decodeAudioData can
+  // hand back glitchy/garbled samples, which is what corrupted the upload.
   async function start() {
     let stream;
     try {
@@ -558,21 +549,23 @@ function initTryIt() {
       say("Mic access was blocked. Allow the microphone and try again.");
       return;
     }
-    chunks = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-    recorder.onstop = () => {
-      stream.getTracks().forEach((t) => t.stop()); // release the mic
-      clearInterval(ticker);
-      take = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-      rawAudio.src = URL.createObjectURL(take);
-      rawTake.hidden = false;
-      cleanBtn.disabled = false;
-      setState("recorded");
-      recordLabel.textContent = "Record again";
-      say("Got your recording. Pick a model and press Remove noise.");
+    micStream = stream;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    captureRate = audioCtx.sampleRate;
+    source = audioCtx.createMediaStreamSource(stream);
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    mute = audioCtx.createGain();
+    mute.gain.value = 0; // keep the node graph running without echoing to speakers
+    pcm = []; pcmLen = 0;
+    processor.onaudioprocess = (e) => {
+      const ch = e.inputBuffer.getChannelData(0);
+      pcm.push(new Float32Array(ch)); // copy: the input buffer is reused each call
+      pcmLen += ch.length;
     };
-    recorder.start();
+    source.connect(processor);
+    processor.connect(mute);
+    mute.connect(audioCtx.destination);
+
     recording = true;
     startedAt = Date.now();
     timerEl.textContent = "0:00";
@@ -583,8 +576,25 @@ function initTryIt() {
   }
 
   function stop() {
-    if (recorder && recording) recorder.stop();
+    if (!recording) return;
     recording = false;
+    clearInterval(ticker);
+    try { processor.disconnect(); source.disconnect(); mute.disconnect(); } catch (e) {}
+    micStream.getTracks().forEach((t) => t.stop()); // release the mic
+
+    const merged = new Float32Array(pcmLen); // flatten all blocks into one buffer
+    let off = 0;
+    for (const chunk of pcm) { merged.set(chunk, off); off += chunk.length; }
+    audioCtx.close();
+
+    take = encodeWav(merged, captureRate); // already a WAV the API can read
+    rawAudio.src = URL.createObjectURL(take);
+    rawTake.hidden = false;
+    cleanBtn.disabled = pcmLen === 0;
+    setState("recorded");
+    recordLabel.textContent = "Record again";
+    say(pcmLen ? "Got your recording. Pick a model and press Remove noise."
+               : "Didn't catch any audio — check the mic and try again.");
   }
 
   recordBtn.addEventListener("click", () => (recording ? stop() : start()));
@@ -595,9 +605,8 @@ function initTryIt() {
     setState("cleaning");
     say("Cleaning… uploading to the Prism cleaner.");
     try {
-      const wav = await blobToWav(take);
       const form = new FormData();
-      form.append("file", wav, "take.wav");
+      form.append("file", take, "take.wav"); // take is the WAV captured above
       const r = await fetch(`${API}/clean?denoiser=${encodeURIComponent(modelSel.value)}`,
         { method: "POST", body: form });
       if (!r.ok) throw new Error(`server returned ${r.status}`);
