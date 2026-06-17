@@ -527,16 +527,28 @@ async function blobToWav(blob) {
 }
 
 function initTryIt() {
+  const card = document.querySelector(".try-card");
   const recordBtn = document.getElementById("try-record");
+  const recordLabel = document.getElementById("try-record-label");
+  const timerEl = document.getElementById("try-timer");
   const cleanBtn = document.getElementById("try-clean");
   const modelSel = document.getElementById("try-model");
   const status = document.getElementById("try-status");
+  const rawTake = document.getElementById("try-take-raw");
+  const outTake = document.getElementById("try-take-out");
   const rawAudio = document.getElementById("try-raw");
   const outAudio = document.getElementById("try-out");
   const download = document.getElementById("try-download");
 
   let recorder = null, chunks = [], take = null, recording = false;
+  let ticker = null, startedAt = 0;
   const say = (msg) => { status.textContent = msg; };
+  const setState = (s) => { card.dataset.state = s; };
+
+  const fmt = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+  function tick() {
+    timerEl.textContent = fmt(Math.floor((Date.now() - startedAt) / 1000));
+  }
 
   async function start() {
     let stream;
@@ -551,21 +563,28 @@ function initTryIt() {
     recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop()); // release the mic
+      clearInterval(ticker);
       take = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
       rawAudio.src = URL.createObjectURL(take);
+      rawTake.hidden = false;
       cleanBtn.disabled = false;
+      setState("recorded");
+      recordLabel.textContent = "Record again";
       say("Got your recording. Pick a model and press Remove noise.");
     };
     recorder.start();
     recording = true;
-    recordBtn.textContent = "Stop recording";
-    say("Recording… speak, then press stop.");
+    startedAt = Date.now();
+    timerEl.textContent = "0:00";
+    ticker = setInterval(tick, 250);
+    setState("recording");
+    recordLabel.textContent = "Recording… tap to stop";
+    say("Listening — speak, then tap to stop.");
   }
 
   function stop() {
     if (recorder && recording) recorder.stop();
     recording = false;
-    recordBtn.textContent = "Record again";
   }
 
   recordBtn.addEventListener("click", () => (recording ? stop() : start()));
@@ -573,6 +592,7 @@ function initTryIt() {
   cleanBtn.addEventListener("click", async () => {
     if (!take) return;
     cleanBtn.disabled = true;
+    setState("cleaning");
     say("Cleaning… uploading to the Prism cleaner.");
     try {
       const wav = await blobToWav(take);
@@ -586,8 +606,11 @@ function initTryIt() {
       outAudio.src = url;
       download.href = url;
       download.hidden = false;
-      say("Done. Play the cleaned version or download it below.");
+      outTake.hidden = false;
+      setState("recorded");
+      say("Done. Play the cleaned version or download it.");
     } catch (e) {
+      setState("recorded");
       say(`Couldn't clean that clip (${e.message}). Try again in a moment.`);
     } finally {
       cleanBtn.disabled = false;

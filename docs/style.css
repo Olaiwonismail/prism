@@ -208,28 +208,82 @@ h2 { font-size: 1.7rem; margin: 0 0 18px; }
 
 /* ---- Try-it demo: record -> clean -> play -------------------------------- */
 
-.try-card { margin-top: 18px; }
-.try-controls {
+.try-card { margin-top: 18px; padding: 26px; }
+
+/* Step 1: the record button + its label/timer. */
+.try-record-row { display: flex; align-items: center; gap: 16px; }
+
+.try-mic {
+  flex: none; width: 60px; height: 60px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: var(--text);
+  background: var(--raise-2); border: 1px solid var(--line-up);
+  transition: transform .15s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.try-mic:hover { border-color: var(--accent-border); transform: translateY(-1px); }
+.try-mic:active { transform: translateY(0); }
+.try-mic-ico { display: grid; place-items: center; }
+
+/* The square "stop" glyph, swapped in while recording. */
+.try-mic-stop {
+  display: none; width: 18px; height: 18px; border-radius: 4px;
+  background: #e25555;
+}
+.try-card[data-state="recording"] .try-mic {
+  border-color: #e25555;
+  background: rgba(226, 85, 85, .12);
+  box-shadow: 0 0 0 4px rgba(226, 85, 85, .14);
+  animation: try-pulse 1.4s ease-in-out infinite;
+}
+.try-card[data-state="recording"] .try-mic-ico { display: none; }
+.try-card[data-state="recording"] .try-mic-stop { display: block; }
+
+@keyframes try-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(226, 85, 85, .14); }
+  50%      { box-shadow: 0 0 0 8px rgba(226, 85, 85, .05); }
+}
+
+.try-record-meta { display: flex; flex-direction: column; gap: 2px; }
+.try-record-label { font-family: var(--sans); font-weight: 500; }
+.try-timer { color: var(--faint); font-size: .85rem; }
+.try-card[data-state="recording"] .try-timer { color: #e25555; }
+
+/* Step 2: model picker + clean button. */
+.try-action-row {
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line);
 }
 .try-model {
   display: inline-flex; align-items: center; gap: 8px;
-  color: var(--faint); font-size: .82rem;
+  color: var(--faint); font-size: .82rem; margin-right: auto;
 }
 .try-model select {
   font-family: var(--sans); font-size: .9rem;
-  background: var(--bg-raise); color: var(--text);
-  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--line-up); border-radius: 8px; padding: 8px 11px;
+  cursor: pointer;
 }
-#try-status { margin: 14px 0 0; }
+.try-model select:hover { border-color: var(--accent-border); }
+#try-clean[disabled] { opacity: .5; cursor: not-allowed; }
+.try-card[data-state="cleaning"] #try-clean { opacity: .7; cursor: progress; }
+
+.try-status { margin: 14px 0 0; min-height: 1.2em; }
+
+/* Step 3: result players, revealed only once they hold audio. */
 .try-results {
   display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 16px; margin-top: 16px;
 }
-.try-take { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.try-take {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px;
+}
+.try-take[hidden] { display: none; }
+.try-take-head { display: flex; align-items: center; justify-content: space-between; }
 .try-take audio { width: 100%; }
-#try-download { color: var(--cyan); text-decoration: none; }
-#try-download:hover { text-decoration: underline; }
+.try-download { color: var(--cyan); text-decoration: none; border: none; }
+.try-download:hover { text-decoration: underline; }
 
 @media (max-width: 560px) {
   .try-results { grid-template-columns: 1fr; }

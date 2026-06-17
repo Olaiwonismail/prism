@@ -95,29 +95,55 @@ try {
     <p class="muted">Record a few seconds, pick a model, and hear Prism clean it
     up. This online demo <strong>uploads your clip</strong> to the Prism cloud
     cleaner — the desktop app does the same processing entirely on your machine.</p>
-    <div class="card try-card">
-      <div class="try-controls">
-        <button id="try-record" class="btn primary" type="button">Allow mic &amp; record</button>
-        <label class="try-model mono">
-          model
+
+    <div class="card try-card" data-state="idle">
+      <!-- Step 1: capture -->
+      <div class="try-record-row">
+        <button id="try-record" class="try-mic" type="button" aria-label="Record">
+          <span class="try-mic-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="2" width="6" height="12" rx="3"/>
+              <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+            </svg>
+          </span>
+          <span class="try-mic-stop" aria-hidden="true"></span>
+        </button>
+        <div class="try-record-meta">
+          <span id="try-record-label" class="try-record-label">Tap to record</span>
+          <span id="try-timer" class="mono try-timer">0:00</span>
+        </div>
+      </div>
+
+      <!-- Step 2: choose a model and clean -->
+      <div class="try-action-row">
+        <label class="try-model mono" for="try-model">
+          <span>model</span>
           <select id="try-model">
             <option value="rnnoise" selected>RNNoise · light</option>
             <option value="gtcrn">GTCRN · ultra-light</option>
             <option value="deepfilternet">DeepFilterNet3 · stronger</option>
           </select>
         </label>
-        <button id="try-clean" class="btn" type="button" disabled>Remove noise</button>
+        <button id="try-clean" class="btn primary" type="button" disabled>Remove noise</button>
       </div>
-      <p id="try-status" class="muted small" role="status" aria-live="polite">Mic access is requested only when you press record.</p>
+
+      <p id="try-status" class="muted small try-status" role="status" aria-live="polite">
+        Mic access is requested only when you press record.
+      </p>
+
+      <!-- Step 3: results — each player only shows once it has audio -->
       <div class="try-results">
-        <div class="try-take">
+        <div class="try-take" id="try-take-raw" hidden>
           <span class="chip mono">your recording</span>
           <audio id="try-raw" controls preload="none"></audio>
         </div>
-        <div class="try-take">
-          <span class="chip done mono">cleaned</span>
+        <div class="try-take" id="try-take-out" hidden>
+          <div class="try-take-head">
+            <span class="chip done mono">cleaned</span>
+            <a id="try-download" class="mono small try-download" download="cleaned.wav" hidden>download ↓</a>
+          </div>
           <audio id="try-out" controls preload="none"></audio>
-          <a id="try-download" class="mono small" download="cleaned.wav" hidden>download cleaned.wav ↓</a>
         </div>
       </div>
     </div>
