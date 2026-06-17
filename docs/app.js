@@ -15,6 +15,10 @@ const REPO_URL = `https://github.com/${OWNER}/${REPO}`;
 const RAW = `https://raw.githubusercontent.com/${OWNER}/${REPO}/main/`;
 const ROOT = document.body.dataset.root || "";
 
+// Deployed FastAPI cleaner (Cloud Run). The "try it" section POSTs WAVs here;
+// swap for http://localhost:8000 when testing against a local uvicorn.
+const API = "https://prism-830276903442.europe-west1.run.app";
+
 /* ---- tiny markdown renderer (for content we write ourselves) ---------- */
 
 function esc(s) {
@@ -477,10 +481,125 @@ async function loadTeaser() {
     `<a href="roadmap/">See the roadmap →</a>`;
 }
 
+/* ---- "try it": record -> clean via API -> play/download ----------------- */
+
+/* Encode mono Float32 PCM as a 16-bit WAV blob. MediaRecorder gives us
+ * webm/opus, which the server's libsndfile can't read, so we decode to PCM in
+ * the browser and re-wrap it as a WAV the API understands. */
+function encodeWav(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  str(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  view.setUint32(16, 16, true);     // PCM chunk size
+  view.setUint16(20, 1, true);      // format = PCM
+  view.setUint16(22, 1, true);      // channels = mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);      // block align
+  view.setUint16(34, 16, true);     // bits per sample
+  str(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let off = 44;
+  for (let i = 0; i < samples.length; i++, off += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([view], { type: "audio/wav" });
+}
+
+/* Decode a recorded blob to a mono Float32 WAV the API can read. */
+async function blobToWav(blob) {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const audio = await ctx.decodeAudioData(await blob.arrayBuffer());
+  const n = audio.length;
+  const mono = new Float32Array(n);
+  for (let ch = 0; ch < audio.numberOfChannels; ch++) {
+    const data = audio.getChannelData(ch);
+    for (let i = 0; i < n; i++) mono[i] += data[i] / audio.numberOfChannels;
+  }
+  const wav = encodeWav(mono, audio.sampleRate);
+  ctx.close();
+  return wav;
+}
+
+function initTryIt() {
+  const recordBtn = document.getElementById("try-record");
+  const cleanBtn = document.getElementById("try-clean");
+  const modelSel = document.getElementById("try-model");
+  const status = document.getElementById("try-status");
+  const rawAudio = document.getElementById("try-raw");
+  const outAudio = document.getElementById("try-out");
+  const download = document.getElementById("try-download");
+
+  let recorder = null, chunks = [], take = null, recording = false;
+  const say = (msg) => { status.textContent = msg; };
+
+  async function start() {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      say("Mic access was blocked. Allow the microphone and try again.");
+      return;
+    }
+    chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop()); // release the mic
+      take = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      rawAudio.src = URL.createObjectURL(take);
+      cleanBtn.disabled = false;
+      say("Got your recording. Pick a model and press Remove noise.");
+    };
+    recorder.start();
+    recording = true;
+    recordBtn.textContent = "Stop recording";
+    say("Recording… speak, then press stop.");
+  }
+
+  function stop() {
+    if (recorder && recording) recorder.stop();
+    recording = false;
+    recordBtn.textContent = "Record again";
+  }
+
+  recordBtn.addEventListener("click", () => (recording ? stop() : start()));
+
+  cleanBtn.addEventListener("click", async () => {
+    if (!take) return;
+    cleanBtn.disabled = true;
+    say("Cleaning… uploading to the Prism cleaner.");
+    try {
+      const wav = await blobToWav(take);
+      const form = new FormData();
+      form.append("file", wav, "take.wav");
+      const r = await fetch(`${API}/clean?denoiser=${encodeURIComponent(modelSel.value)}`,
+        { method: "POST", body: form });
+      if (!r.ok) throw new Error(`server returned ${r.status}`);
+      const cleaned = await r.blob();
+      const url = URL.createObjectURL(cleaned);
+      outAudio.src = url;
+      download.href = url;
+      download.hidden = false;
+      say("Done. Play the cleaned version or download it below.");
+    } catch (e) {
+      say(`Couldn't clean that clip (${e.message}). Try again in a moment.`);
+    } finally {
+      cleanBtn.disabled = false;
+    }
+  });
+}
+
 /* ---- per-page init: run only what exists on this page -------------------- */
 
 if (document.getElementById("theme-toggle")) initTheme();
 if (document.getElementById("wave")) heroWave();
+if (document.getElementById("try")) initTryIt();
 if (document.getElementById("get-latest")) loadLatestButton();
 if (document.getElementById("roadmap-teaser")) loadTeaser();
 if (document.getElementById("roadmap-body")) loadRoadmap();

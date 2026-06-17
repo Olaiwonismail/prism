@@ -12,6 +12,7 @@ import os
 import tempfile
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -19,6 +20,19 @@ from offline import clean_file
 from prism import config
 
 app = FastAPI(title="Prism Cleaner", version="1.0")
+
+# The web UI (docs/, served from GitHub Pages) calls /clean straight from the
+# browser, so the response needs CORS headers or the preflight blocks it. No
+# credentials are sent, so the allowed origins can stay an explicit short list.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://olaiwonismail.github.io",  # GitHub Pages site
+        "http://localhost:8080",            # local `http.server -d docs`
+    ],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 # Denoisers the caller may request. The ONNX ones are cross-platform; "rnnoise"
 # needs the native wheel (see notes in README / CLAUDE.md before deploying).

@@ -90,6 +90,39 @@ try {
     </div>
   </section>
 
+  <section id="try">
+    <h2>Try it in your browser</h2>
+    <p class="muted">Record a few seconds, pick a model, and hear Prism clean it
+    up. This online demo <strong>uploads your clip</strong> to the Prism cloud
+    cleaner — the desktop app does the same processing entirely on your machine.</p>
+    <div class="card try-card">
+      <div class="try-controls">
+        <button id="try-record" class="btn primary" type="button">Allow mic &amp; record</button>
+        <label class="try-model mono">
+          model
+          <select id="try-model">
+            <option value="rnnoise" selected>RNNoise · light</option>
+            <option value="gtcrn">GTCRN · ultra-light</option>
+            <option value="deepfilternet">DeepFilterNet3 · stronger</option>
+          </select>
+        </label>
+        <button id="try-clean" class="btn" type="button" disabled>Remove noise</button>
+      </div>
+      <p id="try-status" class="muted small" role="status" aria-live="polite">Mic access is requested only when you press record.</p>
+      <div class="try-results">
+        <div class="try-take">
+          <span class="chip mono">your recording</span>
+          <audio id="try-raw" controls preload="none"></audio>
+        </div>
+        <div class="try-take">
+          <span class="chip done mono">cleaned</span>
+          <audio id="try-out" controls preload="none"></audio>
+          <a id="try-download" class="mono small" download="cleaned.wav" hidden>download cleaned.wav ↓</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="who">
     <h2>Who it's for</h2>
     <div class="cards">
@@ -214,8 +247,9 @@ try {
         </tbody>
       </table>
     </div>
-    <p class="muted small">Everything runs on your machine. Your audio never
-    leaves it: no cloud, no account, nothing to sign up for.</p>
+    <p class="muted small">The app runs entirely on your machine. Your audio
+    never leaves it: no cloud, no account, nothing to sign up for. (The
+    in-browser demo above is the one exception — it uploads your clip to clean it.)</p>
   </section>
 
   <section id="requirements">
