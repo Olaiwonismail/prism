@@ -56,6 +56,7 @@ def list_input_devices():
     WASAPI, WDM-KS). Restrict to WASAPI when available (full, untruncated
     names) or the default host API, so each mic appears once.
     """
+    
     hostapis = sd.query_hostapis()
     target = next((i for i, api in enumerate(hostapis)
                    if api["name"] == "Windows WASAPI"), sd.default.hostapi)

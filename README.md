@@ -195,6 +195,30 @@ Phase 3 voice-isolation stages slot in after the gate. Full plan with statuses:
 
 ---
 
+## Built with AI assistance
+
+Prism was built by **Olaiwonismail** with help from AI coding tools (Claude
+Code). To be transparent about how:
+
+**Human-led (me):**
+- Product direction, scope, and positioning — what Prism is and who it's for
+- Architecture decisions — the swappable-stage pipeline, gate-after-denoiser
+  ordering, 48 kHz / 480-sample block contract
+- Choosing and integrating the denoisers (RNNoise, GTCRN, DeepFilterNet3) and
+  tuning them on real hardware
+- Testing, debugging, and verifying audio routing on Windows
+
+**AI-assisted:**
+- Implementation of individual DSP stages and boilerplate (filters, resampling,
+  STFT plumbing)
+- Documentation — this README, the docs site, devlog entries
+- Refactors and code cleanup
+
+The design decisions and final review are mine; AI sped up the writing and
+wiring.
+
+---
+
 ## License
 
 MIT.
