@@ -137,7 +137,7 @@ prism/
   config.py         # all tunable knobs (samplerate, cutoffs, denoiser choice)
   audio.py          # device discovery + the full-duplex stream runner
   pipeline.py       # Pipeline (chains stages) + build_denoiser()
-  ui.py             # control window: toggle, model picker, strength, meters
+  ui_qt.py          # PySide6 control window: toggle, model picker, strength, meters
   meters.py         # NoiseMeter — room-noise floor + reduction readout
   dsp/
     highpass.py     # HighPassFilter — Butterworth, stateful
@@ -174,8 +174,11 @@ in [prism/pipeline.py](prism/pipeline.py) — the audio callback stays untouched
    (~32 ms), switchable live, strength slider, noise meter.
 3. **Voice isolation** *(next)* — Silero VAD for speech detection + Demucs v4 to
    separate your voice from background voices, music, and TV.
-4. **UI & distribution** — Tauri desktop UI, tray icon, device picker, level
-   visualizer; Windows `.exe` + Linux AppImage/`.deb`.
+4. **UI & distribution** — PySide6/Qt desktop UI *(largely done — see
+   `prism/ui_qt.py`)*, tray icon, device picker, level visualizer; Windows
+   `.exe` + Linux AppImage/`.deb`. Originally planned as a Tauri (Rust) app;
+   switched to PySide6 so the app ships as one Python+Qt package instead of a
+   Rust shell talking to a separate Python audio backend over IPC.
 
 Today's chain is `mic → high-pass → AI denoiser → noise gate → cable`; the
 Phase 3 voice-isolation stages slot in after the gate. Full plan with statuses:

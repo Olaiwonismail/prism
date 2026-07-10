@@ -166,8 +166,13 @@ reboot). Whether to bundle vs. user-install is an open question (see PRD §13).
 3. **Voice isolation** — Silero VAD (~5ms) for speech detection + Demucs v4
    (streaming) to separate user's voice from background voices/music/TV.
 4. **Sound injection** — soundboard, hotkeys, per-sound volume.
-5. **UI & distribution** — Tauri desktop UI (Rust shell + web frontend), tray
-   icon, device picker, level visualizer; Windows `.exe` + Linux AppImage/.deb.
+5. **UI & distribution** — PySide6/Qt desktop UI (`prism/ui_qt.py`, already the
+   running control window: hero toggle, live scope, strength slider, model +
+   mic pickers), tray icon, device picker, level visualizer; Windows `.exe` +
+   Linux AppImage/.deb. Originally planned as a Tauri (Rust shell + web
+   frontend) app — switched to PySide6 so the whole app ships as one
+   Python+Qt package instead of a Rust shell driving a separate Python audio
+   backend over IPC (see Tech stack below).
 
 Intended signal-chain order once built:
 `mic → high-pass → noise gate → Silero VAD → DeepFilterNet → Demucs v4 → cable`
@@ -180,8 +185,15 @@ Intended signal-chain order once built:
 | Signal processing | `numpy`, `scipy` |
 | AI models | RNNoise, GTCRN, DeepFilterNet, Silero VAD, Demucs v4 |
 | Virtual device | VB-Audio Virtual Cable |
-| Desktop UI (later) | Tauri (Rust + HTML/CSS/JS) |
-| Languages | Python (backend), Rust (UI shell) |
+| Desktop UI | PySide6 / Qt for Python (`prism/ui_qt.py`) |
+| Languages | Python |
+
+**Why PySide6 instead of Tauri:** the roadmap originally called for a Tauri
+(Rust shell + web frontend) desktop UI. That would mean packaging and
+distributing two runtimes — a Rust/webview shell plus the Python audio
+backend it drives over IPC. PySide6 keeps the whole app one Python process,
+so it packages as a single PyInstaller `.exe` (see `Prism.spec`) with no
+cross-language IPC boundary between UI and audio.
 
 ## Environment & running
 

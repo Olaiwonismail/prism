@@ -67,13 +67,6 @@ QFrame#card {
     background: #131722; border: 1px solid #232838; border-radius: 12px;
 }
 
-QFrame#spectrum {
-    border: none; max-height: 3px; min-height: 3px; border-radius: 1px;
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #ff6b6b, stop:0.25 #ffd166, stop:0.5 #37e08f,
-        stop:0.75 #4dabf7, stop:1 #b57bff);
-}
-
 /* Pill-shaped pickers (the two dropdowns up top share this look). */
 QComboBox {
     background: #1c2030; border: 1px solid #2c3242; border-radius: 18px;
@@ -394,19 +387,11 @@ def run_ui(engine):
     outer.setContentsMargins(20, 16, 20, 20)
     outer.setSpacing(12)
 
-    # --- Title with a prism-spectrum underline --------------------------------
+    # --- Title -----------------------------------------------------------------
     title = QLabel("PRISM")
     title.setObjectName("title")
-    spectrum = QFrame()
-    spectrum.setObjectName("spectrum")
-    spectrum.setFixedWidth(64)
-    title_col = QVBoxLayout()
-    title_col.setContentsMargins(0, 0, 0, 0)
-    title_col.setSpacing(3)
-    title_col.addWidget(title)
-    title_col.addWidget(spectrum)
     title_row = QHBoxLayout()
-    title_row.addLayout(title_col)
+    title_row.addWidget(title)
     title_row.addStretch(1)
     outer.addLayout(title_row)
 

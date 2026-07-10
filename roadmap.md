@@ -46,10 +46,20 @@ DeepFilterNet) before it becomes integration work.
 
 ## Phase 4 — UI & distribution
 
-Status: planned
+Status: in progress
 
-Tauri desktop UI (tray icon, device picker, level visualizer), packaged
-Windows `.exe`, Linux AppImage/.deb.
+**Desktop UI — largely done.** This was originally planned as a Tauri (Rust
+shell + web frontend) app. Switched to a **PySide6/Qt** control window
+(`prism/ui_qt.py`) instead: a Tauri build means packaging and shipping two
+runtimes — a Rust/webview shell plus the Python audio backend it talks to
+over IPC. PySide6 keeps the UI and the audio engine in one Python process, so
+the whole app bundles into a single PyInstaller `.exe` with no IPC boundary
+to design around or debug. The window already has the hero on/off toggle, a
+live raw-vs-cleaned level scope, model and microphone pickers, and a
+noise-removal strength slider.
+
+**Remaining:** a system tray icon (minimize-to-tray instead of quitting on
+close), and packaged builds — Windows `.exe` and Linux AppImage/.deb.
 
 Website tasks parked until the pieces exist:
 
