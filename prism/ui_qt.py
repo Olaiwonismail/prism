@@ -4,8 +4,7 @@ Top of the window mirrors a two-pill layout: a Model picker and a Microphone
 picker side by side, with a live scope below them: a scrolling waveform that
 draws the raw mic level in grey and the cleaned output level in green on top,
 so the grey visible above the green is the noise being stripped in real time.
-Under that sit the hero power toggle (with a breathing glow while filtering)
-and the settings (AI denoiser on/off, strength, readings).
+Under that sit the hero power toggle and the noise-removal strength slider.
 
 Qt's event loop owns the main thread; audio runs on PortAudio's callback thread
 inside AudioEngine. A QTimer polls display-only ``engine.*`` values at ~30 fps --
@@ -16,13 +15,14 @@ does DSP.
 import sys
 from collections import deque
 
-from PySide6.QtCore import (
-    Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer,
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import (
+    QBrush, QColor, QIcon, QLinearGradient, QPainter, QPen, QPixmap,
+    QPolygonF, QRadialGradient,
 )
-from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF, QRadialGradient
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
+    QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton,
+    QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 import sounddevice as sd
@@ -57,11 +57,10 @@ QWidget#root { background: #0f1119; }
 QLabel#title { font-size: 17px; font-weight: 700; color: #dfe3ee; letter-spacing: 1px; }
 QLabel#heroState { font-size: 14px; font-weight: 600; letter-spacing: 2px; }
 QLabel#status { color: #8b90a0; }
-QLabel#divider { color: #4b5060; font-size: 11px; letter-spacing: 3px; }
 QLabel[class="fieldcap"] { color: #8b90a0; font-size: 11px; font-weight: 600; }
 QLabel[class="muted"] { color: #8b90a0; }
 QLabel[class="reading"] { color: #cfd3de; }
-QLabel[class="legend"] { color: #6d7284; font-size: 11px; }
+QLabel[class="legend"] { color: #868c9e; font-size: 11px; }
 QLabel:disabled { color: #565b6a; }
 
 QFrame#card {
@@ -81,6 +80,7 @@ QComboBox {
     padding: 9px 16px; min-height: 18px;
 }
 QComboBox:hover { border-color: #3a4152; }
+QComboBox:focus { border-color: #3d8bd4; }
 QComboBox::drop-down { border: none; width: 26px; }
 /* Blank the native arrow; PillCombo paints its own chevron. */
 QComboBox::down-arrow { image: none; width: 0; height: 0; border: none; }
@@ -94,6 +94,7 @@ QSlider::sub-page:horizontal { background: #3d8bd4; border-radius: 2px; }
 QSlider::handle:horizontal {
     width: 16px; margin: -7px 0; border-radius: 8px; background: #e6e8ee;
 }
+QSlider::handle:horizontal:focus { background: #5fa8e8; }
 QSlider::sub-page:horizontal:disabled { background: #3a4152; }
 QSlider::handle:horizontal:disabled { background: #6b7080; }
 """
@@ -192,106 +193,24 @@ class PillCombo(QComboBox):
                                   QPointF(cx + 4, cy - 2)]))
 
 
-class ToggleSwitch(QCheckBox):
-    """A flat on/off switch: a rounded track with a sliding circular knob.
-
-    Custom-painted (no native indicator, no gradients) so it reads clearly as a
-    switch rather than a checkbox. Still a QCheckBox underneath, so it keeps the
-    ``toggled`` signal, ``isChecked`` and enable/disable the rest of the UI wires
-    to. The whole widget is the hit target.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.setFixedSize(46, 26)
-        self.setCursor(Qt.PointingHandCursor)
-        # Knob position, 0.0 (off) .. 1.0 (on). Animated on toggle so the knob
-        # glides instead of snapping; paintEvent renders from this, not isChecked.
-        self._pos = 1.0 if self.isChecked() else 0.0
-        self._anim = QPropertyAnimation(self, b"position", self)
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.InOutCubic)
-        self.toggled.connect(self._animate)
-
-    def hitButton(self, pos):
-        return self.rect().contains(pos)
-
-    def _animate(self, checked):
-        self._anim.stop()
-        self._anim.setStartValue(self._pos)
-        self._anim.setEndValue(1.0 if checked else 0.0)
-        self._anim.start()
-
-    def get_position(self):
-        return self._pos
-
-    def set_position(self, value):
-        self._pos = value
-        self.update()  # repaint each animation tick
-
-    position = Property(float, get_position, set_position)
-
-    def paintEvent(self, _event):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        r = QRectF(self.rect())
-        pos = self._pos if self.isEnabled() else 0.0
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor(_ACCENT) if pos > 0.5 else QColor("#2c3242"))
-        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
-        margin = 3.0
-        d = r.height() - 2 * margin
-        x = margin + (r.width() - d - 2 * margin) * pos
-        p.setBrush(QColor("#f2f3f7") if self.isEnabled() else QColor("#6b7080"))
-        p.drawEllipse(QRectF(x, margin, d, d))
-
-
 class PowerButton(QPushButton):
-    """The hero toggle: a circular button with a painted power symbol and a
-    breathing halo while filtering is on.
+    """The hero toggle: a circular button with a painted power symbol.
 
     Everything is drawn with QPainter, deliberately: the power glyph U+23FB
     exists in no font on a stock Windows install, so a text "⏻" rendered as a
     tofu box *and* stalled the window's first show() for seconds while Qt
     scanned every installed font for a fallback (measured ~3s; it starved all
-    timers, freezing the scope and animations). The halo is likewise painted
-    here — a radial gradient in the widget's margin — instead of an animated
-    QGraphicsDropShadowEffect, which re-blurs on the CPU every frame.
+    timers, freezing the scope and animations).
     """
 
-    _FACE = 104.0    # diameter of the button face
-    _MARGIN = 26.0   # room around the face for the halo
+    _FACE = 104.0  # diameter of the button face
 
     def __init__(self):
         super().__init__()
         self.setCheckable(True)
-        size = int(self._FACE + 2 * self._MARGIN)
-        self.setFixedSize(size, size)
+        self.setFixedSize(int(self._FACE), int(self._FACE))
         self.setCursor(Qt.PointingHandCursor)
-        self._halo = 0.0  # 0..1 halo strength; breathes while filtering
-        self._breath = QPropertyAnimation(self, b"halo", self)
-        self._breath.setDuration(2400)
-        self._breath.setStartValue(0.45)
-        self._breath.setKeyValueAt(0.5, 1.0)
-        self._breath.setEndValue(0.45)
-        self._breath.setEasingCurve(QEasingCurve.InOutSine)
-        self._breath.setLoopCount(-1)
-
-    def set_glowing(self, on):
-        if on:
-            self._breath.start()
-        else:
-            self._breath.stop()
-            self.set_halo(0.0)
-
-    def get_halo(self):
-        return self._halo
-
-    def set_halo(self, value):
-        self._halo = value
-        self.update()  # repaint each animation tick
-
-    halo = Property(float, get_halo, set_halo)
+        self.toggled.connect(self.update)
 
     def enterEvent(self, event):
         super().enterEvent(event)
@@ -305,21 +224,8 @@ class PowerButton(QPushButton):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         center = QRectF(self.rect()).center()
-        face_r = self._FACE / 2.0
+        face_r = self._FACE / 2.0 - 1.0  # keep the border stroke inside
         on = self.isChecked()
-
-        if self._halo > 0.0:
-            glow_r = face_r + self._MARGIN * (0.4 + 0.6 * self._halo)
-            grad = QRadialGradient(center, glow_r)
-            edge = QColor(_ACCENT)
-            edge.setAlphaF(0.30 * self._halo)
-            fade = QColor(_ACCENT)
-            fade.setAlphaF(0.0)
-            grad.setColorAt(max(0.0, face_r / glow_r - 0.02), edge)
-            grad.setColorAt(1.0, fade)
-            p.setPen(Qt.NoPen)
-            p.setBrush(grad)
-            p.drawEllipse(center, glow_r, glow_r)
 
         face = QRectF(center.x() - face_r, center.y() - face_r,
                       2 * face_r, 2 * face_r)
@@ -335,6 +241,12 @@ class PowerButton(QPushButton):
             p.setPen(QPen(QColor("#3a4152" if hover else "#2c3242"), 2))
         p.drawEllipse(face)
 
+        if self.hasFocus():
+            ring_r = face_r - 5.0
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(_ACCENT_BRIGHT), 1.5))
+            p.drawEllipse(center, ring_r, ring_r)
+
         # Power symbol (IEC 5009): a ring with a gap at the top and a stem
         # dropping through the gap.
         icon_r = 19.0
@@ -345,6 +257,58 @@ class PowerButton(QPushButton):
         p.drawArc(ring, 125 * 16, 290 * 16)  # gap of 70 deg centered on top
         p.drawLine(QPointF(center.x(), center.y() - icon_r - 4),
                    QPointF(center.x(), center.y() - 1))
+
+
+def _paint_icon(size):
+    """The Prism mark at one pixel size: the docs-site logo (a triangle with a
+    teal->purple->pink gradient stroke) on the app's dark rounded tile."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    s = size / 48.0  # geometry designed on a 48px grid
+
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor("#161a26"))
+    p.drawRoundedRect(QRectF(0, 0, size, size), 11 * s, 11 * s)
+
+    grad = QLinearGradient(0, 0, size, size)
+    grad.setColorAt(0.0, QColor("#6fc9d8"))
+    grad.setColorAt(0.55, QColor("#9b90d4"))
+    grad.setColorAt(1.0, QColor("#d3a3d9"))
+    pen = QPen(QBrush(grad), max(1.6, 3.2 * s))
+    pen.setJoinStyle(Qt.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawPolygon(QPolygonF([QPointF(24 * s, 10 * s),
+                             QPointF(40 * s, 37 * s),
+                             QPointF(8 * s, 37 * s)]))
+    p.end()
+    return pm
+
+
+def _app_icon():
+    """Window/taskbar icon painted in code -- no image asset to ship or load."""
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 48, 64, 128, 256):
+        icon.addPixmap(_paint_icon(size))
+    return icon
+
+
+def _taskbar_identity():
+    """Give the process its own Windows taskbar identity.
+
+    Python GUI apps inherit python.exe's AppUserModelID, so without this the
+    taskbar groups Prism under Python and shows the Python icon instead of
+    the one set via setWindowIcon. No-op off Windows.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Prism.Prism")
+    except Exception:
+        pass
 
 
 def _dark_titlebar(widget):
@@ -391,9 +355,8 @@ def _row(*widgets):
 def _reading(text):
     """A right-hand value label that won't clip as its text grows/shrinks.
 
-    Right-aligned with a minimum width so a widening reading (e.g. "0 dB" ->
-    "-52 dB", "gate: shut" -> "gate: OPEN") hugs the right margin instead of
-    overflowing past it.
+    Right-aligned with a minimum width so a widening reading (e.g. "0%" ->
+    "100%") hugs the right margin instead of overflowing past it.
     """
     lbl = QLabel(text)
     lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -419,6 +382,8 @@ def run_ui(engine):
 
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")  # flat base; no native gradient shading on controls
+    _taskbar_identity()
+    app.setWindowIcon(_app_icon())
     root = QWidget()
     root.setObjectName("root")
     root.setWindowTitle("Prism")
@@ -471,20 +436,17 @@ def run_ui(engine):
         f'<span style="color:{_ACCENT};">&#9632;</span> cleaned'
     )
     legend.setProperty("class", "legend")
-    reduction_val = QLabel("")
-    reduction_val.setProperty("class", "legend")
-    reduction_val.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    outer.addLayout(_row(legend, reduction_val))
+    outer.addWidget(legend)
 
     # --- Hero power button ----------------------------------------------------
     hero = PowerButton()
     hero.setChecked(engine.enabled)
-    set_glow = hero.set_glowing
 
     hero_row = QHBoxLayout()
     hero_row.addStretch(1)
     hero_row.addWidget(hero)
     hero_row.addStretch(1)
+    outer.addSpacing(8)
     outer.addLayout(hero_row)
 
     hero_state = QLabel()
@@ -502,17 +464,12 @@ def run_ui(engine):
         hero_state.setText("FILTERING ON" if on else "PASSTHROUGH")
         hero_state.setStyleSheet(
             f"color: {_ACCENT_BRIGHT};" if on else "color: #8b90a0;")
-        set_glow(on)
         # The status line stays empty in the normal case; it only surfaces
         # transient messages (switching a model, a device error).
         status.setText("")
 
     # --- Settings card ----------------------------------------------------------
     outer.addSpacing(4)
-    divider = QLabel("SETTINGS")
-    divider.setObjectName("divider")
-    outer.addWidget(divider)
-
     card = QFrame()
     card.setObjectName("card")
     card_lay = QVBoxLayout(card)
@@ -520,38 +477,16 @@ def run_ui(engine):
     card_lay.setSpacing(10)
     outer.addWidget(card)
 
-    # AI noise removal toggle
-    denoise_check = ToggleSwitch()
-    denoise_check.setChecked(engine.denoiser_enabled)
-    denoise_cap = QLabel("AI noise removal")
-    card_lay.addLayout(_row(denoise_cap, denoise_check))
-
-    # Strength slider (dimmed while AI noise removal is off)
+    # Noise-removal strength slider
     strength = QSlider(Qt.Horizontal)
     strength.setRange(0, 100)
     strength.setValue(int(round(engine.denoiser_mix * 100.0)))
-    strength_cap = QLabel("Strength")
+    strength_cap = QLabel("Noise removal")
     strength_cap.setProperty("class", "muted")
     strength_val = _reading(f"{int(round(engine.denoiser_mix * 100.0))}%")
     strength_val.setProperty("class", "reading")
     card_lay.addLayout(_row(strength_cap, strength_val))
     card_lay.addWidget(strength)
-
-    # Readings: room noise + gate
-    floor_cap = QLabel("Room noise")
-    floor_cap.setProperty("class", "muted")
-    floor_val = _reading("-- dB")
-    floor_val.setProperty("class", "reading")
-    card_lay.addLayout(_row(floor_cap, floor_val))
-
-    gate_cap = QLabel("Noise gate")
-    gate_cap.setProperty("class", "muted")
-    gate_val = _reading("")
-    card_lay.addLayout(_row(gate_cap, gate_val))
-
-    def sync_strength(enabled):
-        for w in (strength, strength_cap, strength_val):
-            w.setEnabled(enabled)
 
     # --- Handlers -------------------------------------------------------------
     def _active_model_label():
@@ -560,9 +495,6 @@ def run_ui(engine):
     def on_hero():
         engine.enabled = hero.isChecked()
         describe()
-
-    def on_denoise_toggle():
-        engine.denoiser_enabled = denoise_check.isChecked()
 
     def on_strength(value):
         engine.denoiser_mix = value / 100.0
@@ -593,18 +525,15 @@ def run_ui(engine):
             status.setText(f"Mic error: {exc}")
 
     hero.clicked.connect(on_hero)
-    denoise_check.toggled.connect(on_denoise_toggle)
-    denoise_check.toggled.connect(sync_strength)
     strength.valueChanged.connect(on_strength)
     model_combo.currentIndexChanged.connect(on_model_selected)
     mic_combo.activated.connect(on_mic_selected)
     _set_combo(model_combo, _active_model_label())
 
     if not engine.denoiser_available:
-        denoise_check.setChecked(False)
-        denoise_check.setEnabled(False)
         model_combo.setEnabled(False)
-    sync_strength(denoise_check.isChecked())
+        for w in (strength, strength_cap, strength_val):
+            w.setEnabled(False)
 
     describe()
 
@@ -614,20 +543,6 @@ def run_ui(engine):
 
     def poll():
         scope.push(engine.in_db, engine.out_db, filtering_active())
-        floor_val.setText(f"{engine.noise_floor_db:.0f} dB")
-        if filtering_active() and engine.reduction_db >= 0.5:
-            reduction_val.setText(
-                f'<span style="color:{_ACCENT_BRIGHT};">'
-                f"−{engine.reduction_db:.0f} dB noise removed</span>")
-        else:
-            reduction_val.setText("")
-        if engine.enabled and engine.gate_open:
-            gate_val.setText(f'<span style="color:{_ACCENT_BRIGHT};">'
-                             f"&#9679;</span> open")
-        elif engine.enabled:
-            gate_val.setText('<span style="color:#5a5f70;">&#9679;</span> shut')
-        else:
-            gate_val.setText('<span style="color:#5a5f70;">&#9679;</span> bypassed')
 
     timer = QTimer(root)
     timer.timeout.connect(poll)
