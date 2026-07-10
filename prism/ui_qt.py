@@ -13,16 +13,16 @@ it only *reads* pre-computed numbers, so it never touches the audio callback or
 does DSP.
 """
 
+import sys
 from collections import deque
 
 from PySide6.QtCore import (
-    Property, QEasingCurve, QPropertyAnimation, QRectF, Qt, QTimer,
+    Property, QEasingCurve, QPointF, QPropertyAnimation, QRectF, Qt, QTimer,
 )
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF, QRadialGradient
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFrame, QGraphicsDropShadowEffect,
-    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QSlider, QVBoxLayout,
-    QWidget,
+    QApplication, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
+    QPushButton, QSizePolicy, QSlider, QVBoxLayout, QWidget,
 )
 
 import sounddevice as sd
@@ -62,23 +62,17 @@ QLabel[class="fieldcap"] { color: #8b90a0; font-size: 11px; font-weight: 600; }
 QLabel[class="muted"] { color: #8b90a0; }
 QLabel[class="reading"] { color: #cfd3de; }
 QLabel[class="legend"] { color: #6d7284; font-size: 11px; }
+QLabel:disabled { color: #565b6a; }
+
+QFrame#card {
+    background: #131722; border: 1px solid #232838; border-radius: 12px;
+}
 
 QFrame#spectrum {
     border: none; max-height: 3px; min-height: 3px; border-radius: 1px;
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
         stop:0 #ff6b6b, stop:0.25 #ffd166, stop:0.5 #37e08f,
         stop:0.75 #4dabf7, stop:1 #b57bff);
-}
-
-QPushButton#hero {
-    background: #1a1f2e; border: 2px solid #2c3242; border-radius: 52px;
-    font-size: 40px; font-family: 'Segoe UI Symbol'; color: #7d8296;
-}
-QPushButton#hero:hover { border-color: #3a4152; }
-QPushButton#hero:checked {
-    background: qradialgradient(cx:0.5, cy:0.5, radius:0.7,
-        stop:0 #16334f, stop:1 #10243a);
-    border-color: #3d8bd4; color: #5fa8e8;
 }
 
 /* Pill-shaped pickers (the two dropdowns up top share this look). */
@@ -88,6 +82,8 @@ QComboBox {
 }
 QComboBox:hover { border-color: #3a4152; }
 QComboBox::drop-down { border: none; width: 26px; }
+/* Blank the native arrow; PillCombo paints its own chevron. */
+QComboBox::down-arrow { image: none; width: 0; height: 0; border: none; }
 QComboBox QAbstractItemView {
     background: #1c2030; border: 1px solid #2c3242; border-radius: 6px;
     selection-background-color: #3d8bd4; outline: none;
@@ -98,8 +94,8 @@ QSlider::sub-page:horizontal { background: #3d8bd4; border-radius: 2px; }
 QSlider::handle:horizontal {
     width: 16px; margin: -7px 0; border-radius: 8px; background: #e6e8ee;
 }
-
-QFrame#hline { background: #232838; max-height: 1px; border: none; }
+QSlider::sub-page:horizontal:disabled { background: #3a4152; }
+QSlider::handle:horizontal:disabled { background: #6b7080; }
 """
 
 
@@ -175,6 +171,27 @@ class LevelScope(QWidget):
         p.drawLine(inset.left(), mid, inset.right(), mid)
 
 
+class PillCombo(QComboBox):
+    """A QComboBox that paints its own dropdown chevron.
+
+    Qt's QSS has no reliable way to draw an arrow without an image asset
+    (the CSS border-triangle trick renders as a filled rectangle), so the
+    pill look comes from the stylesheet and the chevron from QPainter.
+    """
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor("#8b90a0"), 1.6, Qt.SolidLine,
+                      Qt.RoundCap, Qt.RoundJoin))
+        cx = self.width() - 19.0
+        cy = self.height() / 2.0
+        p.drawPolyline(QPolygonF([QPointF(cx - 4, cy - 2),
+                                  QPointF(cx, cy + 2.5),
+                                  QPointF(cx + 4, cy - 2)]))
+
+
 class ToggleSwitch(QCheckBox):
     """A flat on/off switch: a rounded track with a sliding circular knob.
 
@@ -229,32 +246,122 @@ class ToggleSwitch(QCheckBox):
         p.drawEllipse(QRectF(x, margin, d, d))
 
 
-def _make_glow(button):
-    """A soft accent-colored halo behind the hero button that slowly breathes
-    while filtering is on. Driven by animating the drop shadow's blur radius;
-    call the returned setter with True/False as the hero toggles."""
-    glow = QGraphicsDropShadowEffect(button)
-    glow.setColor(QColor(61, 139, 212, 160))
-    glow.setOffset(0, 0)
-    glow.setBlurRadius(0)
-    button.setGraphicsEffect(glow)
+class PowerButton(QPushButton):
+    """The hero toggle: a circular button with a painted power symbol and a
+    breathing halo while filtering is on.
 
-    breath = QPropertyAnimation(glow, b"blurRadius", button)
-    breath.setDuration(2400)
-    breath.setStartValue(22)
-    breath.setKeyValueAt(0.5, 46)
-    breath.setEndValue(22)
-    breath.setEasingCurve(QEasingCurve.InOutSine)
-    breath.setLoopCount(-1)
+    Everything is drawn with QPainter, deliberately: the power glyph U+23FB
+    exists in no font on a stock Windows install, so a text "⏻" rendered as a
+    tofu box *and* stalled the window's first show() for seconds while Qt
+    scanned every installed font for a fallback (measured ~3s; it starved all
+    timers, freezing the scope and animations). The halo is likewise painted
+    here — a radial gradient in the widget's margin — instead of an animated
+    QGraphicsDropShadowEffect, which re-blurs on the CPU every frame.
+    """
 
-    def set_on(on):
+    _FACE = 104.0    # diameter of the button face
+    _MARGIN = 26.0   # room around the face for the halo
+
+    def __init__(self):
+        super().__init__()
+        self.setCheckable(True)
+        size = int(self._FACE + 2 * self._MARGIN)
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.PointingHandCursor)
+        self._halo = 0.0  # 0..1 halo strength; breathes while filtering
+        self._breath = QPropertyAnimation(self, b"halo", self)
+        self._breath.setDuration(2400)
+        self._breath.setStartValue(0.45)
+        self._breath.setKeyValueAt(0.5, 1.0)
+        self._breath.setEndValue(0.45)
+        self._breath.setEasingCurve(QEasingCurve.InOutSine)
+        self._breath.setLoopCount(-1)
+
+    def set_glowing(self, on):
         if on:
-            breath.start()
+            self._breath.start()
         else:
-            breath.stop()
-            glow.setBlurRadius(0)
+            self._breath.stop()
+            self.set_halo(0.0)
 
-    return set_on
+    def get_halo(self):
+        return self._halo
+
+    def set_halo(self, value):
+        self._halo = value
+        self.update()  # repaint each animation tick
+
+    halo = Property(float, get_halo, set_halo)
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.update()  # repaint for the hover border
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        center = QRectF(self.rect()).center()
+        face_r = self._FACE / 2.0
+        on = self.isChecked()
+
+        if self._halo > 0.0:
+            glow_r = face_r + self._MARGIN * (0.4 + 0.6 * self._halo)
+            grad = QRadialGradient(center, glow_r)
+            edge = QColor(_ACCENT)
+            edge.setAlphaF(0.30 * self._halo)
+            fade = QColor(_ACCENT)
+            fade.setAlphaF(0.0)
+            grad.setColorAt(max(0.0, face_r / glow_r - 0.02), edge)
+            grad.setColorAt(1.0, fade)
+            p.setPen(Qt.NoPen)
+            p.setBrush(grad)
+            p.drawEllipse(center, glow_r, glow_r)
+
+        face = QRectF(center.x() - face_r, center.y() - face_r,
+                      2 * face_r, 2 * face_r)
+        if on:
+            fill = QRadialGradient(center, face_r)
+            fill.setColorAt(0.0, QColor("#16334f"))
+            fill.setColorAt(1.0, QColor("#10243a"))
+            p.setBrush(fill)
+            p.setPen(QPen(QColor(_ACCENT), 2))
+        else:
+            p.setBrush(QColor("#1a1f2e"))
+            hover = self.underMouse()
+            p.setPen(QPen(QColor("#3a4152" if hover else "#2c3242"), 2))
+        p.drawEllipse(face)
+
+        # Power symbol (IEC 5009): a ring with a gap at the top and a stem
+        # dropping through the gap.
+        icon_r = 19.0
+        color = QColor(_ACCENT_BRIGHT) if on else QColor("#7d8296")
+        p.setPen(QPen(color, 3.4, Qt.SolidLine, Qt.RoundCap))
+        ring = QRectF(center.x() - icon_r, center.y() - icon_r + 3,
+                      2 * icon_r, 2 * icon_r)
+        p.drawArc(ring, 125 * 16, 290 * 16)  # gap of 70 deg centered on top
+        p.drawLine(QPointF(center.x(), center.y() - icon_r - 4),
+                   QPointF(center.x(), center.y() - 1))
+
+
+def _dark_titlebar(widget):
+    """Ask DWM for a dark window frame so the title bar matches the UI.
+
+    Windows 10 20H1+ / Windows 11 only; a silent no-op anywhere else.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        value = ctypes.c_int(1)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            int(widget.winId()), 20,  # DWMWA_USE_IMMERSIVE_DARK_MODE
+            ctypes.byref(value), ctypes.sizeof(value))
+    except Exception:
+        pass
 
 
 def _preselect_index(devices, current_name):
@@ -339,11 +446,11 @@ def run_ui(engine):
     outer.addLayout(title_row)
 
     # --- Top pickers: Model | Microphone (two pills side by side) -------------
-    model_combo = QComboBox()
+    model_combo = PillCombo()
     model_combo.addItems([label for label, _ in _DENOISER_OPTIONS])
     model_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-    mic_combo = QComboBox()
+    mic_combo = PillCombo()
     mic_combo.addItems([name for _, name in devices])
     mic_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     if devices:
@@ -370,19 +477,14 @@ def run_ui(engine):
     outer.addLayout(_row(legend, reduction_val))
 
     # --- Hero power button ----------------------------------------------------
-    hero = QPushButton("⏻")  # power symbol
-    hero.setObjectName("hero")
-    hero.setCheckable(True)
+    hero = PowerButton()
     hero.setChecked(engine.enabled)
-    hero.setFixedSize(104, 104)
-    hero.setCursor(Qt.PointingHandCursor)
-    set_glow = _make_glow(hero)
+    set_glow = hero.set_glowing
 
     hero_row = QHBoxLayout()
     hero_row.addStretch(1)
     hero_row.addWidget(hero)
     hero_row.addStretch(1)
-    outer.addSpacing(4)
     outer.addLayout(hero_row)
 
     hero_state = QLabel()
@@ -405,25 +507,26 @@ def run_ui(engine):
         # transient messages (switching a model, a device error).
         status.setText("")
 
-    # --- Settings divider -----------------------------------------------------
-    outer.addSpacing(8)
+    # --- Settings card ----------------------------------------------------------
+    outer.addSpacing(4)
     divider = QLabel("SETTINGS")
     divider.setObjectName("divider")
-    divider.setAlignment(Qt.AlignCenter)
     outer.addWidget(divider)
-    line = QFrame()
-    line.setObjectName("hline")
-    line.setFrameShape(QFrame.HLine)
-    outer.addWidget(line)
-    outer.addSpacing(4)
 
-    # --- AI noise removal: toggle ---------------------------------------------
+    card = QFrame()
+    card.setObjectName("card")
+    card_lay = QVBoxLayout(card)
+    card_lay.setContentsMargins(16, 14, 16, 14)
+    card_lay.setSpacing(10)
+    outer.addWidget(card)
+
+    # AI noise removal toggle
     denoise_check = ToggleSwitch()
     denoise_check.setChecked(engine.denoiser_enabled)
     denoise_cap = QLabel("AI noise removal")
-    outer.addLayout(_row(denoise_cap, denoise_check))
+    card_lay.addLayout(_row(denoise_cap, denoise_check))
 
-    # --- Strength slider ------------------------------------------------------
+    # Strength slider (dimmed while AI noise removal is off)
     strength = QSlider(Qt.Horizontal)
     strength.setRange(0, 100)
     strength.setValue(int(round(engine.denoiser_mix * 100.0)))
@@ -431,20 +534,24 @@ def run_ui(engine):
     strength_cap.setProperty("class", "muted")
     strength_val = _reading(f"{int(round(engine.denoiser_mix * 100.0))}%")
     strength_val.setProperty("class", "reading")
-    outer.addLayout(_row(strength_cap, strength_val))
-    outer.addWidget(strength)
+    card_lay.addLayout(_row(strength_cap, strength_val))
+    card_lay.addWidget(strength)
 
-    # --- Readings: room noise + gate --------------------------------------------
+    # Readings: room noise + gate
     floor_cap = QLabel("Room noise")
     floor_cap.setProperty("class", "muted")
     floor_val = _reading("-- dB")
     floor_val.setProperty("class", "reading")
-    outer.addLayout(_row(floor_cap, floor_val))
+    card_lay.addLayout(_row(floor_cap, floor_val))
 
     gate_cap = QLabel("Noise gate")
     gate_cap.setProperty("class", "muted")
     gate_val = _reading("")
-    outer.addLayout(_row(gate_cap, gate_val))
+    card_lay.addLayout(_row(gate_cap, gate_val))
+
+    def sync_strength(enabled):
+        for w in (strength, strength_cap, strength_val):
+            w.setEnabled(enabled)
 
     # --- Handlers -------------------------------------------------------------
     def _active_model_label():
@@ -487,6 +594,7 @@ def run_ui(engine):
 
     hero.clicked.connect(on_hero)
     denoise_check.toggled.connect(on_denoise_toggle)
+    denoise_check.toggled.connect(sync_strength)
     strength.valueChanged.connect(on_strength)
     model_combo.currentIndexChanged.connect(on_model_selected)
     mic_combo.activated.connect(on_mic_selected)
@@ -496,7 +604,7 @@ def run_ui(engine):
         denoise_check.setChecked(False)
         denoise_check.setEnabled(False)
         model_combo.setEnabled(False)
-        strength.setEnabled(False)
+    sync_strength(denoise_check.isChecked())
 
     describe()
 
@@ -529,6 +637,7 @@ def run_ui(engine):
     # as the loop exits. aboutToQuit fires reliably where an instance-level
     # closeEvent override on a plain QWidget would not.
     app.aboutToQuit.connect(engine.stop)
+    _dark_titlebar(root)
     root.show()
     app.exec()
 
