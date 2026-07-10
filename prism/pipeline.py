@@ -5,6 +5,7 @@ import numpy as np
 from . import config
 from .dsp.highpass import HighPassFilter
 from .dsp.noise_gate import NoiseGate
+from .dsp.silero_vad import SileroVAD
 from .dsp.deepfilternet import DeepFilterNetDenoiser
 from .dsp.gtcrn import GTCRNDenoiser
 
@@ -72,6 +73,41 @@ def build_denoiser(choice=None):
     return _build_rnnoise()
 
 
+def _build_rms_gate():
+    return NoiseGate(
+        threshold_db=config.NOISE_GATE_THRESHOLD_DB,
+        samplerate=config.SAMPLERATE,
+        blocksize=config.BLOCKSIZE,
+        attack_ms=config.NOISE_GATE_ATTACK_MS,
+        release_ms=config.NOISE_GATE_RELEASE_MS,
+        hold_ms=config.NOISE_GATE_HOLD_MS,
+    )
+
+
+def build_gate(mode=None):
+    """Construct the end-of-chain gate per ``config.GATE_MODE``.
+
+    "vad" builds a Silero speech gate (needs onnxruntime + the model); if it
+    can't load we say why and fall back to the RMS gate, which is always
+    available. Any other value builds the RMS gate directly.
+    """
+    mode = (mode or config.GATE_MODE).lower()
+    if mode == "vad":
+        try:
+            return SileroVAD(
+                config.SILERO_MODEL,
+                threshold=config.VAD_THRESHOLD,
+                samplerate=config.SAMPLERATE,
+                blocksize=config.BLOCKSIZE,
+                attack_ms=config.NOISE_GATE_ATTACK_MS,
+                release_ms=config.NOISE_GATE_RELEASE_MS,
+                hold_ms=config.NOISE_GATE_HOLD_MS,
+            )
+        except OSError as exc:
+            print(f"Silero VAD unavailable, falling back to RMS gate: {exc}")
+    return _build_rms_gate()
+
+
 def build_default_pipeline(denoiser_choice=None):
     """Current chain: high-pass filter -> AI denoiser -> noise gate.
 
@@ -91,12 +127,5 @@ def build_default_pipeline(denoiser_choice=None):
         denoiser = build_denoiser(denoiser_choice)
         if denoiser is not None:
             stages.append(denoiser)
-    stages.append(NoiseGate(
-        threshold_db=config.NOISE_GATE_THRESHOLD_DB,
-        samplerate=config.SAMPLERATE,
-        blocksize=config.BLOCKSIZE,
-        attack_ms=config.NOISE_GATE_ATTACK_MS,
-        release_ms=config.NOISE_GATE_RELEASE_MS,
-        hold_ms=config.NOISE_GATE_HOLD_MS,
-    ))
+    stages.append(build_gate())
     return Pipeline(stages)

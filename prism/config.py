@@ -24,6 +24,14 @@ HIGHPASS_CUTOFF_HZ = 90
 HIGHPASS_ORDER = 2
 
 # --- Noise gate -------------------------------------------------------------
+# Which gate runs at the end of the pipeline:
+#   "rms"  - NoiseGate: opens on loudness (RMS) above NOISE_GATE_THRESHOLD_DB
+#   "vad"  - SileroVAD: opens on detected *speech*, so it keeps quiet speech an
+#            RMS gate would clip and drops loud non-speech a RMS gate would pass
+# "vad" needs onnxruntime + the Silero model (scripts/fetch_silero_vad.py); if
+# either is missing the pipeline says why and falls back to the RMS gate.
+GATE_MODE = "rms"
+
 # Silences the mic between words. Runs AFTER RNNoise (see pipeline.py), so it
 # sees the cleaned signal whose noise floor is far below the raw mic's. That
 # lets the threshold sit low enough to pass soft speech onsets while still
@@ -36,6 +44,14 @@ NOISE_GATE_ATTACK_MS = 5.0        # how fast the gate opens on speech
 NOISE_GATE_RELEASE_MS = 150.0     # how fast the gate fades out after the hold
 NOISE_GATE_HOLD_MS = 200.0        # stays fully open this long after speech
                                   # drops out, so word ends/gaps aren't chopped
+
+# --- Voice activity detection (Phase 3) -------------------------------------
+# The "vad" gate (GATE_MODE above) uses Silero VAD. It observes a 16 kHz
+# downsampled copy of the audio and gates on speech probability, reusing the
+# noise-gate attack/release/hold envelope above. The model isn't committed;
+# fetch it with scripts/fetch_silero_vad.py.
+SILERO_MODEL = "models/silero_vad/silero_vad.onnx"
+VAD_THRESHOLD = 0.5               # Silero speech probability above this = speech
 
 # --- AI noise removal --------------------------------------------------------
 # Which denoiser runs in the pipeline:

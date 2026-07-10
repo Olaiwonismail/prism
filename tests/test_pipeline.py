@@ -234,6 +234,54 @@ def check_gtcrn():
     assert np.array_equal(stage.process(block), block)
 
 
+def check_silero_vad():
+    """Silero VAD honours the block contract, passes through when disabled, and
+    reports low speech probability on silence (so its gate closes). Detection of
+    real speech is verified live in the app, not from synthetic tones. Skips if
+    onnxruntime or the model file isn't present."""
+    from prism.dsp.silero_vad import SileroVAD
+
+    def make_stage(**kw):
+        return SileroVAD(config.SILERO_MODEL, threshold=config.VAD_THRESHOLD,
+                         samplerate=FS, blocksize=N, **kw)
+
+    try:
+        stage = make_stage()
+    except OSError as exc:
+        print(f"Silero VAD unavailable -- skipping its checks ({exc}).")
+        return
+
+    # Block contract: same number of samples out per call, any block size --
+    # the 48->16 kHz decimator + 512-sample window FIFO must not drop samples.
+    rng = np.random.default_rng(0)
+    noise = (0.05 * rng.standard_normal(len(T))).astype(np.float32)
+    for blocksize in (N, 1024, 160):
+        s = make_stage()
+        total_in = total_out = 0
+        for i in range(0, 48000, blocksize):
+            block = noise[i:i + blocksize]
+            o = s.process(block)
+            assert len(o) == len(block), f"length broken at B={blocksize}"
+            assert o.dtype == np.float32
+            total_in += len(block)
+            total_out += len(o)
+        assert total_in == total_out
+
+    # Silence: speech probability stays low and the gate closes to near silence.
+    silence = np.zeros(len(T), dtype=np.float32)
+    out = np.concatenate([stage.process(silence[i:i + N])
+                          for i in range(0, len(silence), N)])
+    print(f"Silero VAD  : silence speech_prob={stage.speech_prob:.2f} "
+          f"out_rms={rms(out[len(out) // 2:]):.6f}")
+    assert stage.speech_prob < 0.5, "VAD saw speech in pure silence"
+    assert rms(out[len(out) // 2:]) < 1e-3, "VAD gate did not close on silence"
+
+    # Disabled stage must be a perfect passthrough.
+    s = make_stage(enabled=False)
+    block = noise[:N]
+    assert np.array_equal(s.process(block), block)
+
+
 def main():
     check_phase1()
     check_gate_hold()
@@ -241,6 +289,7 @@ def main():
     check_noise_meter()
     check_deepfilternet()
     check_gtcrn()
+    check_silero_vad()
     print("\nAll pipeline checks passed.")
 
 

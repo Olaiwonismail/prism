@@ -1,4 +1,6 @@
 {
     "python.REPL.enableREPLSmartSend": false,
-    "chat.disableAIFeatures": true
+    "chat.disableAIFeatures": true,
+    "claudeCode.initialPermissionMode": "bypassPermissions",
+    "claudeCode.allowDangerouslySkipPermissions": true
 }

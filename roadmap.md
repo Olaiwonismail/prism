@@ -26,10 +26,22 @@ room's noise floor plus how much is being removed.
 
 ## Phase 3 — Voice isolation
 
-Status: next
+Status: in progress
 
 Separate *your* voice from background voices, music, and TV: Silero VAD
 (~5 ms) for speech detection plus a streaming source-separation stage.
+
+**Speech detection — done.** Silero VAD ships as a swappable end-of-chain gate
+(`config.GATE_MODE = "vad"`): it opens on detected speech rather than loudness,
+so it keeps quiet speech an RMS gate would clip and drops loud non-speech
+(keyboard, fan) it would pass. It observes a 16 kHz downsampled copy, so it adds
+no latency to the audio path.
+
+**Source separation — next.** The direction is **target-speaker extraction**
+(keep one enrolled voice, drop other voices/TV/music), not blind separation.
+There's no off-the-shelf CPU/ONNX personalized model to drop in yet, so this
+piece is a research spike (WeSep causal backbone, or training a personalized
+DeepFilterNet) before it becomes integration work.
 
 
 ## Phase 4 — UI & distribution

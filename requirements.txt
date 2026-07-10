@@ -7,6 +7,10 @@ sounddevice==0.5.5
 pyrnnoise==0.4.3          # bundles rnnoise.dll; Prism binds to it via ctypes
 onnxruntime==1.26.0       # DeepFilterNet3 (CPU); model via scripts/fetch_deepfilternet.py
 
+# Desktop UI (hero-toggle window). Essentials only -- Prism uses just
+# QtCore + QtWidgets, so we skip the ~170 MB PySide6-Addons wheel.
+PySide6-Essentials==6.11.1
+
 # Offline cleaning API (api.py)
 soundfile==0.14.0
 fastapi==0.137.1

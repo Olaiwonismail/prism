@@ -8,7 +8,7 @@ import sys
 import sounddevice as sd
 
 from prism import audio, config
-from prism.ui import run_ui
+from prism.ui_qt import run_ui
 
 INSTALL_HELP = """\
 Could not find the VB-Audio Virtual Cable output device ("CABLE Input").

@@ -40,6 +40,23 @@ without clipping soft speech onsets. A gate on the raw mic had to sit above
 the ~-35 dBFS noise floor (-25) and chopped quiet consonants. The gate also
 has a hold time so word ends/brief gaps aren't cut.
 
+The end-of-chain gate is swappable via `config.GATE_MODE`: **"rms"** (the
+default `NoiseGate`, opens on loudness) or **"vad"** (`SileroVAD`, opens on
+detected speech). The VAD gate keeps quiet speech the RMS gate would clip and
+drops loud non-speech (keyboard, fan) it would pass. Missing onnxruntime/model
+→ `build_gate()` falls back to the RMS gate.
+
+Silero VAD notes ([prism/dsp/silero_vad.py](prism/dsp/silero_vad.py)): a tiny
+~2.3 MB MIT ONNX detector (Phase 3's speech-detection piece). It runs at 16 kHz
+on fixed 512-sample windows, so the stage **observes a downsampled copy** to
+update a running speech probability while the audio passes through untouched —
+the model's ~32 ms window adds **no latency to the signal** (the detection lag
+is absorbed by the gate's hold). It reuses GTCRN's `_Decimator` for 48→16 kHz
+and the noise-gate attack/release/hold envelope, gated on `speech_prob` instead
+of RMS. Input names differ by model version (v4: input/sr/h/c; v5:
+input/state/sr), so the stage **introspects the graph at load** rather than
+hardcoding. Model isn't committed; fetch with `scripts/fetch_silero_vad.py`.
+
 RNNoise notes ([prism/dsp/rnnoise_denoise.py](prism/dsp/rnnoise_denoise.py)):
 binds via ctypes to the shared library bundled in the `pyrnnoise` wheel; the
 package's own Python wrapper is **never imported** (broken `audiolab`/`av`
@@ -87,17 +104,20 @@ prism/
   config.py         # all tunable constants (samplerate, cutoffs, denoiser choice)
   audio.py          # find_device() + AudioEngine duplex stream runner
   pipeline.py       # Pipeline (chains stages) + build_denoiser() (RNNoise/DFN)
-  ui.py             # Tkinter window (toggle, model picker, strength, mic, meters)
+  ui_qt.py          # PySide6 "hero toggle" window (power button, meters, settings)
+  ui.py             # legacy Tkinter window (kept as a fallback; app.py uses ui_qt)
   meters.py         # NoiseMeter — display-only room-noise + reduction readings
   dsp/
     highpass.py     # HighPassFilter — Butterworth, stateful (scipy sosfilt)
     noise_gate.py   # NoiseGate — RMS gate with attack/release smoothing
+    silero_vad.py   # SileroVAD — speech-driven gate (onnxruntime, observes 16 kHz copy)
     rnnoise_denoise.py  # RNNoiseDenoiser — neural denoiser (ctypes -> rnnoise.dll)
     deepfilternet.py    # DeepFilterNetDenoiser — DFN3 streaming via onnxruntime
     gtcrn.py            # GTCRNDenoiser — ultra-light 16 kHz NN (onnxruntime + resample)
 scripts/
   fetch_deepfilternet.py  # download the DFN3 ONNX model into models/ (one-time)
   fetch_gtcrn.py          # download the GTCRN ONNX model into models/ (one-time)
+  fetch_silero_vad.py     # download the Silero VAD ONNX model into models/ (one-time)
 tests/
   test_pipeline.py  # offline DSP/meter checks (no audio devices needed)
 roadmap.md          # phase statuses — single source of truth for the roadmap
