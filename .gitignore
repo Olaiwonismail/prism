@@ -220,3 +220,4 @@ __marimo__/
 
 # Prism: downloaded AI model weights (fetched via scripts/, not committed)
 models/
+monetization.md

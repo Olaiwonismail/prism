@@ -10,7 +10,7 @@ Status: done
 Mic capture, virtual-cable routing, high-pass filter, noise gate with hold
 time, and device auto-detect that never picks the cable as its own input
 (feedback-loop guard). A minimal control window with a mic picker and live
-level meter. The proper system-tray icon moved to Phase 5 with the rest of
+level meter. The proper system-tray icon moved to Phase 4 with the rest of
 the UI work.
 
 ## Phase 2 — AI noise removal

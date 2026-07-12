@@ -6,13 +6,13 @@ Guidance for working in the **Prism** repository.
 
 Prism is an open-source, cross-platform **virtual audio middleware** that sits
 between a physical microphone and any application. It captures mic input,
-processes it in real time (AI noise removal, voice isolation, sound injection),
-and routes the result to a **virtual audio cable** so apps like Discord, Zoom,
-OBS, and browsers can use the processed stream as their microphone.
+processes it in real time (AI noise removal, voice isolation), and routes the
+result to a **virtual audio cable** so apps like Discord, Zoom, OBS, and
+browsers can use the processed stream as their microphone.
 
 **Positioning:** the only open-source, Windows-first tool combining noise
-removal + voice isolation + sound injection in one pipeline, aimed at
-non-technical users (gamers, party chat, remote workers, streamers).
+removal + voice isolation in one pipeline, aimed at non-technical users
+(gamers, party chat, remote workers, streamers).
 
 **Core principles that should guide design decisions:**
 - Zero config / non-technical friendly — works out of the box, no audio
@@ -23,7 +23,9 @@ non-technical users (gamers, party chat, remote workers, streamers).
 
 ## Current state
 
-Early/MVP. **Phase 1 functional, Phase 2 largely complete**: mic capture →
+Early/MVP. **Phases 1–2 done; Phase 3 (voice isolation) in progress** — the
+Silero VAD speech gate shipped, target-speaker extraction is next. Chain today:
+mic capture →
 high-pass → AI denoiser → noise gate → virtual cable routing. The denoiser is
 **swappable** (`config.DENOISER`): RNNoise (light default), GTCRN (ultra-light
 neural, tiny model), or DeepFilterNet3 (stronger, heavier). The UI adds a live
@@ -134,9 +136,9 @@ docs/               # static site (GitHub Pages serves this folder; no build ste
 
 `Pipeline` ([prism/pipeline.py](prism/pipeline.py)) is an ordered list of
 **stages**. Each stage is an object with `process(block) -> block` operating on a
-1-D float32 mono array in [-1.0, 1.0], and may hold state across blocks. Future
-phases (RNNoise, Silero VAD, DeepFilterNet, Demucs) plug in as new stage classes
-appended in `build_default_pipeline()`. The audio callback in
+1-D float32 mono array in [-1.0, 1.0], and may hold state across blocks. New
+processing (e.g. Phase 3's target-speaker extraction stage) plugs in as new
+stage classes appended in `build_default_pipeline()`. The audio callback in
 [prism/audio.py](prism/audio.py) stays trivial — all processing lives in stages.
 
 Tunables (cutoff, gate threshold, attack/release, samplerate, blocksize) live in
@@ -158,24 +160,28 @@ reboot). Whether to bundle vs. user-install is an open question (see PRD §13).
 
 **Single source of truth: [roadmap.md](roadmap.md)** (the landing page in
 `docs/` renders it directly — update statuses there, not here). Summary:
-1. **Core pipeline** (current) — mic capture, virtual cable routing, high-pass
-   filter, noise gate, device auto-detect, system tray.
+1. **Core pipeline** (done) — mic capture, virtual cable routing, high-pass
+   filter, noise gate, device auto-detect (tray icon moved to Phase 4).
 2. **AI noise removal** (done) — RNNoise (~10ms) + GTCRN (~40ms, ultra-light) +
    DeepFilterNet3 (~32ms), swappable via `config.DENOISER`; adjustable level
    (strength slider) and noise meter both shipped.
-3. **Voice isolation** — Silero VAD (~5ms) for speech detection + Demucs v4
-   (streaming) to separate user's voice from background voices/music/TV.
-4. **Sound injection** — soundboard, hotkeys, per-sound volume.
-5. **UI & distribution** — PySide6/Qt desktop UI (`prism/ui_qt.py`, already the
-   running control window: hero toggle, live scope, strength slider, model +
-   mic pickers), tray icon, device picker, level visualizer; Windows `.exe` +
+3. **Voice isolation** (in progress) — speech detection is done (Silero VAD
+   speech gate, see above). Next: **target-speaker extraction** — keep one
+   enrolled voice, drop other voices/music/TV — *not* blind separation (the
+   earlier Demucs plan is dropped). No off-the-shelf CPU/ONNX personalized
+   model exists yet, so this is a research spike (WeSep causal backbone, or
+   training a personalized DeepFilterNet) before it becomes integration work.
+4. **UI & distribution** (in progress) — PySide6/Qt desktop UI
+   (`prism/ui_qt.py`, already the running control window: hero toggle, live
+   scope, strength slider, model + mic pickers) is largely done. Remaining:
+   system tray icon (minimize-to-tray) and packaged builds — Windows `.exe` +
    Linux AppImage/.deb. Originally planned as a Tauri (Rust shell + web
    frontend) app — switched to PySide6 so the whole app ships as one
    Python+Qt package instead of a Rust shell driving a separate Python audio
    backend over IPC (see Tech stack below).
 
 Intended signal-chain order once built:
-`mic → high-pass → noise gate → Silero VAD → DeepFilterNet → Demucs v4 → cable`
+`mic → high-pass → AI denoiser → target-speaker extraction → gate (RMS or VAD) → cable`
 
 ## Tech stack
 
@@ -183,7 +189,7 @@ Intended signal-chain order once built:
 |---|---|
 | Audio I/O | `sounddevice` (PortAudio) |
 | Signal processing | `numpy`, `scipy` |
-| AI models | RNNoise, GTCRN, DeepFilterNet, Silero VAD, Demucs v4 |
+| AI models | RNNoise, GTCRN, DeepFilterNet, Silero VAD; target-speaker extraction model TBD (Phase 3) |
 | Virtual device | VB-Audio Virtual Cable |
 | Desktop UI | PySide6 / Qt for Python (`prism/ui_qt.py`) |
 | Languages | Python |
