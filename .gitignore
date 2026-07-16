@@ -220,4 +220,6 @@ __marimo__/
 
 # Prism: downloaded AI model weights (fetched via scripts/, not committed)
 models/
+# Prism: downloaded VB-Cable installer (fetched via scripts/fetch_vbcable.py)
+installers/
 monetization.md

@@ -1,5 +1,7 @@
 """Audio device discovery and the controllable audio engine."""
 
+import sys
+
 import numpy as np
 import sounddevice as sd
 
@@ -49,17 +51,23 @@ def pick_input_device():
     return None
 
 
+# Preferred PortAudio host API per platform: WASAPI on Windows (full,
+# untruncated device names), Core Audio on macOS. Everything else (Linux:
+# ALSA/pulse) uses the default host API.
+_PREFERRED_HOSTAPI = {"win32": "Windows WASAPI", "darwin": "Core Audio"}
+
+
 def list_input_devices():
     """Return [(index, name)] of real microphones from a single host API.
 
-    PortAudio lists every physical device once per host API (MME, DirectSound,
-    WASAPI, WDM-KS). Restrict to WASAPI when available (full, untruncated
-    names) or the default host API, so each mic appears once.
+    PortAudio lists every physical device once per host API (on Windows: MME,
+    DirectSound, WASAPI, WDM-KS). Restrict to the platform's preferred host
+    API, falling back to the default one, so each mic appears once.
     """
-    
     hostapis = sd.query_hostapis()
+    preferred = _PREFERRED_HOSTAPI.get(sys.platform)
     target = next((i for i, api in enumerate(hostapis)
-                   if api["name"] == "Windows WASAPI"), sd.default.hostapi)
+                   if api["name"] == preferred), sd.default.hostapi)
     return [(index, device["name"])
             for index, device in enumerate(sd.query_devices())
             if (device["hostapi"] == target
@@ -75,12 +83,17 @@ def _dbfs(x):
 
 
 class AudioEngine:
-    """Owns the mic -> pipeline -> cable stream; controllable from a UI.
+    """Owns the mic -> pipeline -> virtual-device stream; UI-controllable.
 
     ``enabled`` toggles processing vs. raw passthrough (a plain bool the audio
     callback reads each block — atomic under the GIL, no locks). ``in_db``,
     ``out_db`` and ``gate_open`` are written by the callback for the UI to
     poll; they are display-only approximations.
+
+    ``output_index`` is the virtual cable's output device (Windows/Linux). On
+    macOS it is None: there is no output device — the engine opens an
+    input-only stream and pushes processed blocks into the PrismAudio HAL
+    driver's shared-memory ring (prism/ring_output.py) instead.
     """
 
     def __init__(self, output_index):
@@ -98,6 +111,7 @@ class AudioEngine:
         self._denoiser_choice = config.DENOISER  # "rnnoise" | "gtcrn" | "deepfilternet" | "none"
         self._denoiser = None  # the active denoiser stage (RNNoise / GTCRN / DeepFilterNet)
         self._meter = None
+        self._ring = None  # macOS: SharedRingWriter feeding the HAL driver
 
     @property
     def denoiser_available(self):
@@ -163,6 +177,31 @@ class AudioEngine:
             db_floor=_DB_FLOOR,
         )
 
+        if sys.platform == "darwin":
+            stream = self._open_ring_stream(input_index, pipeline)
+        else:
+            stream = self._open_duplex_stream(input_index, pipeline)
+        stream.start()
+        self._stream = stream
+        self.input_index = input_index
+
+    def _post_block(self, processed):
+        """Shared per-block bookkeeping after processing (display only)."""
+        self.out_db = _dbfs(processed.astype(np.float32) / _INT16_SCALE)
+        self.gate_open = self.in_db >= config.NOISE_GATE_THRESHOLD_DB
+        # Noise meter: the room floor needs a VAD, which only RNNoise
+        # exposes (DeepFilterNet has none). Feed it only when that denoiser
+        # is actually running; otherwise pass None and the floor holds.
+        if self.enabled and self._denoise_enabled:
+            speech_prob = getattr(self._denoiser, "speech_prob", None)
+        else:
+            speech_prob = None
+        self._meter.update(self.in_db, self.out_db, speech_prob)
+        self.noise_floor_db = self._meter.noise_floor_db
+        self.reduction_db = self._meter.reduction_db
+
+    def _open_duplex_stream(self, input_index, pipeline):
+        """Windows/Linux: duplex stream writing into the virtual cable."""
         # PortAudio cannot open a duplex stream across host APIs (-9993), so
         # use the cable device from the same host API as the chosen mic.
         output_index = self.output_index
@@ -185,20 +224,9 @@ class AudioEngine:
                 processed = indata[:, 0]  # raw passthrough
             # Broadcast mono to every output channel (e.g. a stereo cable).
             outdata[:] = processed[:, None]
-            self.out_db = _dbfs(processed.astype(np.float32) / _INT16_SCALE)
-            self.gate_open = self.in_db >= config.NOISE_GATE_THRESHOLD_DB
-            # Noise meter: the room floor needs a VAD, which only RNNoise
-            # exposes (DeepFilterNet has none). Feed it only when that denoiser
-            # is actually running; otherwise pass None and the floor holds.
-            if self.enabled and self._denoise_enabled:
-                speech_prob = getattr(self._denoiser, "speech_prob", None)
-            else:
-                speech_prob = None
-            self._meter.update(self.in_db, self.out_db, speech_prob)
-            self.noise_floor_db = self._meter.noise_floor_db
-            self.reduction_db = self._meter.reduction_db
+            self._post_block(processed)
 
-        stream = sd.Stream(
+        return sd.Stream(
             device=(input_index, output_index),
             samplerate=config.SAMPLERATE,
             blocksize=config.BLOCKSIZE,
@@ -206,14 +234,44 @@ class AudioEngine:
             channels=(1, out_channels),
             callback=callback,
         )
-        stream.start()
-        self._stream = stream
-        self.input_index = input_index
+
+    def _open_ring_stream(self, input_index, pipeline):
+        """macOS: input-only stream feeding the HAL driver's shared ring."""
+        from .ring_output import SharedRingWriter
+
+        if self._ring is not None:
+            self._ring.close()
+        self._ring = SharedRingWriter(config.MAC_RING_FILE, config.SAMPLERATE)
+        ring = self._ring
+
+        def callback(indata, frames, time, status):
+            if status:
+                print("Audio status:", status)
+            self.in_db = _dbfs(indata[:, 0].astype(np.float32) / _INT16_SCALE)
+            if self.enabled:
+                processed = pipeline.process_int16(indata)
+            else:
+                processed = indata[:, 0]  # raw passthrough
+            # The driver serves float32; convert once here.
+            ring.write(processed.astype(np.float32) / _INT16_SCALE)
+            self._post_block(processed)
+
+        return sd.InputStream(
+            device=input_index,
+            samplerate=config.SAMPLERATE,
+            blocksize=config.BLOCKSIZE,
+            dtype=config.DTYPE,
+            channels=1,
+            callback=callback,
+        )
 
     def stop(self):
         if self._stream is not None:
             self._stream.close()
             self._stream = None
+        if self._ring is not None:
+            self._ring.close()
+            self._ring = None
 
     def switch_input(self, input_index):
         self.start(input_index)

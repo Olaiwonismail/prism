@@ -3,6 +3,8 @@
 All tunable knobs live here so the rest of the code stays declarative.
 """
 
+import sys as _sys
+
 # --- Audio stream -----------------------------------------------------------
 # RNNoise is trained on 48 kHz audio and consumes fixed 480-sample (10 ms)
 # frames, so the whole stream runs at 48 kHz with one block == one RNNoise
@@ -11,11 +13,39 @@ SAMPLERATE = 48000
 BLOCKSIZE = 480           # frames per block (10 ms at 48 kHz)
 DTYPE = "int16"
 
-# Virtual cable output device, matched by name substring (VB-Audio Cable).
-CABLE_NAME = "CABLE Input"
-# Never use these as the mic: VB-Cable devices (feedback loop) and Windows
-# mapper pseudo-devices, which just forward to the default device.
-INPUT_EXCLUDE = ("CABLE", "Microsoft Sound Mapper", "Primary Sound")
+# --- Virtual device routing (per platform) ----------------------------------
+# Windows: VB-Audio Cable. Prism writes to the "CABLE Input" playback device;
+#          apps record from "CABLE Output". If missing, prism/bootstrap.py can
+#          run a bundled VB-Cable installer (one UAC prompt + one reboot).
+# Linux:   a PipeWire loopback pair Prism spawns at startup (no install):
+#          Prism writes to the "Prism Virtual Cable" sink, apps record from
+#          the "Prism Microphone" source.
+# macOS:   no output device at all. The bundled PrismAudio HAL driver exposes
+#          a "Prism Microphone" input device fed by a shared-memory ring file
+#          Prism writes directly (see prism/ring_output.py + mac/). CABLE_NAME
+#          is unused there.
+LINUX_SINK_NODE = "prism_cable"
+LINUX_SOURCE_NODE = "prism_mic"
+LINUX_SINK_DESCRIPTION = "Prism Virtual Cable"
+LINUX_SOURCE_DESCRIPTION = "Prism Microphone"
+if _sys.platform.startswith("linux"):
+    CABLE_NAME = LINUX_SINK_DESCRIPTION
+else:
+    CABLE_NAME = "CABLE Input"  # VB-Audio Cable (Windows)
+
+# macOS virtual mic (input device published by the PrismAudio HAL driver).
+MAC_VIRTUAL_MIC_NAME = "Prism Microphone"
+MAC_DRIVER_BUNDLE = "PrismAudio.driver"       # bundled with the app / CI artifact
+MAC_RING_FILE = "/tmp/com.prism.audio"        # must match PrismSharedRing.h
+
+# Bundled VB-Cable installer (Windows), relative to the app/repo root; fetch
+# with scripts/fetch_vbcable.py before packaging. Bundled unmodified.
+VBCABLE_INSTALLER = "installers/VBCABLE_Setup_x64.exe"
+
+# Never use these as the mic: our own virtual devices (feedback loop) and
+# Windows mapper pseudo-devices, which just forward to the default device.
+INPUT_EXCLUDE = ("CABLE", "Prism Microphone", "Microsoft Sound Mapper",
+                 "Primary Sound")
 
 # --- High-pass filter -------------------------------------------------------
 # Removes low-frequency rumble/hum. Speech fundamentals start ~85 Hz, so a
@@ -61,8 +91,11 @@ VAD_THRESHOLD = 0.5               # Silero speech probability above this = speec
 #   "deepfilternet" - stronger: ~32 ms latency, ~6 ms/block CPU, 13 MB ONNX model
 #   "none"          - skip AI denoising (high-pass + gate only)
 # The ONNX denoisers need onnxruntime + their model file; if either is missing
-# the pipeline prints why and falls back to RNNoise.
-DENOISER = "rnnoise"
+# the pipeline prints why and falls back to the platform default below.
+# RNNoise is the Windows default (its shared library ships in the pyrnnoise
+# wheel there); elsewhere GTCRN is the default and the fallback -- pure
+# onnxruntime + a portable ONNX model, no native library to source.
+DENOISER = "rnnoise" if _sys.platform == "win32" else "gtcrn"
 DENOISE_ENABLED = True            # master on/off for the AI denoiser (UI toggle)
 DENOISE_MIX = 1.0                 # dry/wet: 0.0 = bypass, 1.0 = fully denoised
                                   # exposed live as the UI "strength" slider

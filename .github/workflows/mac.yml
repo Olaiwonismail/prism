@@ -1,0 +1,33 @@
+# Build + ad-hoc sign the PrismAudio HAL driver on a macOS runner (free for
+# public repos) and publish it as a build artifact. This is how the driver is
+# compiled without owning a Mac -- green CI means "compiles and signs", NOT
+# "verified on hardware": the runtime check (device appears, audio routes)
+# still needs a real Mac.
+name: mac-driver
+
+on:
+  push:
+    paths:
+      - "mac/**"
+      - ".github/workflows/mac.yml"
+  pull_request:
+    paths:
+      - "mac/**"
+      - ".github/workflows/mac.yml"
+  workflow_dispatch:
+
+jobs:
+  build-driver:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build + ad-hoc sign PrismAudio.driver
+        run: bash mac/build_driver.sh "${GITHUB_REF_NAME#v}"
+
+      - name: Upload driver artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrismAudio.driver
+          path: mac/dist/PrismAudio.driver
+          if-no-files-found: error

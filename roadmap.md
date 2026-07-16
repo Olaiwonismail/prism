@@ -58,8 +58,18 @@ to design around or debug. The window already has the hero on/off toggle, a
 live raw-vs-cleaned level scope, model and microphone pickers, and a
 noise-removal strength slider.
 
+**Self-installing virtual device — built.** Prism now sets up its own virtual
+microphone instead of sending users to a website: on Windows it offers the
+bundled VB-Cable installer (one UAC prompt + one reboot); on Linux it spawns a
+PipeWire loopback at startup (no install at all); on macOS it installs its own
+**Prism Microphone** HAL driver (an MIT fork of Krasp's, fed over shared
+memory — one admin prompt, no reboot). The macOS driver builds and signs in
+CI but is **unverified on real Mac hardware** — a Mac smoke test gates any
+macOS release.
+
 **Remaining:** a system tray icon (minimize-to-tray instead of quitting on
-close), and packaged builds — Windows `.exe` and Linux AppImage/.deb.
+close), packaged builds — Windows `.exe` and Linux AppImage/.deb — and a
+hardware-verified macOS build.
 
 Website tasks parked until the pieces exist:
 

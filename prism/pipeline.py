@@ -1,5 +1,7 @@
 """The Prism processing pipeline: an ordered chain of DSP/AI stages."""
 
+import sys
+
 import numpy as np
 
 from . import config
@@ -39,20 +41,35 @@ class Pipeline:
         return x.astype(np.int16)
 
 
+# What a failed denoiser choice degrades to. RNNoise on Windows (its shared
+# library ships in the pyrnnoise wheel there); GTCRN elsewhere -- pure
+# onnxruntime + a portable ONNX model, no native library to source.
+_FALLBACK = "rnnoise" if sys.platform == "win32" else "gtcrn"
+
+
 def _build_rnnoise():
     if RNNoiseDenoiser is None:
-        print(f"RNNoise unavailable, running without AI denoise: {_RNNOISE_ERROR}")
+        print(f"RNNoise unavailable: {_RNNOISE_ERROR}")
         return None
     return RNNoiseDenoiser(mix=config.DENOISE_MIX)
+
+
+def _build_gtcrn():
+    try:
+        return GTCRNDenoiser(config.GTCRN_MODEL, mix=config.DENOISE_MIX)
+    except OSError as exc:
+        print(f"GTCRN unavailable: {exc}")
+        return None
 
 
 def build_denoiser(choice=None):
     """Construct an AI denoiser stage, or None if unavailable.
 
-    ``choice`` defaults to ``config.DENOISER``; pass it explicitly to switch the
-    denoiser live. DeepFilterNet needs onnxruntime + the model file; if it can't
-    load we say why and fall back to RNNoise, which is bundled and (almost)
-    always present.
+    ``choice`` defaults to ``config.DENOISER``; pass it explicitly to switch
+    the denoiser live. Anything that can't load (missing onnxruntime, missing
+    model file, missing RNNoise library) says why and falls back to the
+    platform default (RNNoise on Windows, GTCRN elsewhere); if that fails too
+    the pipeline runs without AI denoise.
     """
     choice = (choice or config.DENOISER).lower()
     if choice == "none":
@@ -62,15 +79,22 @@ def build_denoiser(choice=None):
             return DeepFilterNetDenoiser(config.DEEPFILTERNET_MODEL,
                                          mix=config.DENOISE_MIX)
         except OSError as exc:
-            print(f"DeepFilterNet unavailable, falling back to RNNoise: {exc}")
-        return _build_rnnoise()
+            print(f"DeepFilterNet unavailable, falling back to {_FALLBACK}: {exc}")
+        choice = _FALLBACK
     if choice == "gtcrn":
-        try:
-            return GTCRNDenoiser(config.GTCRN_MODEL, mix=config.DENOISE_MIX)
-        except OSError as exc:
-            print(f"GTCRN unavailable, falling back to RNNoise: {exc}")
-        return _build_rnnoise()
-    return _build_rnnoise()
+        stage = _build_gtcrn()
+        if stage is None and _FALLBACK == "rnnoise":
+            stage = _build_rnnoise()
+        if stage is None:
+            print("Running without AI denoise.")
+        return stage
+    # "rnnoise" (or anything unrecognized)
+    stage = _build_rnnoise()
+    if stage is None and _FALLBACK == "gtcrn":
+        stage = _build_gtcrn()
+    if stage is None:
+        print("Running without AI denoise.")
+    return stage
 
 
 def _build_rms_gate():

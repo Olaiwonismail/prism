@@ -27,8 +27,9 @@ Early/MVP. **Phases 1–2 done; Phase 3 (voice isolation) in progress** — the
 Silero VAD speech gate shipped, target-speaker extraction is next. Chain today:
 mic capture →
 high-pass → AI denoiser → noise gate → virtual cable routing. The denoiser is
-**swappable** (`config.DENOISER`): RNNoise (light default), GTCRN (ultra-light
-neural, tiny model), or DeepFilterNet3 (stronger, heavier). The UI adds a live
+**swappable** (`config.DENOISER`): RNNoise (light, the Windows default), GTCRN
+(ultra-light neural, tiny model; the default off-Windows), or DeepFilterNet3
+(stronger, heavier). The UI adds a live
 **strength** slider (dry/wet) and a **noise meter** (room-noise floor + how much
 is being stripped).
 
@@ -101,10 +102,14 @@ without caring about its type.
 ### Layout
 
 ```
-app.py              # thin entry point: find cable, build pipeline, run stream
+app.py              # thin entry point: bootstrap device, build pipeline, run
 prism/
   config.py         # all tunable constants (samplerate, cutoffs, denoiser choice)
-  audio.py          # find_device() + AudioEngine duplex stream runner
+  audio.py          # find_device() + AudioEngine stream runner (duplex, or
+                    #   input-only + ring on macOS)
+  bootstrap.py      # ensure_virtual_device() — self-install/spawn the virtual
+                    #   device per platform (VB-Cable / pw-loopback / HAL driver)
+  ring_output.py    # SharedRingWriter — macOS shared-memory feed to the driver
   pipeline.py       # Pipeline (chains stages) + build_denoiser() (RNNoise/DFN)
   ui_qt.py          # PySide6 "hero toggle" window (power button, meters, settings)
   ui.py             # legacy Tkinter window (kept as a fallback; app.py uses ui_qt)
@@ -116,13 +121,19 @@ prism/
     rnnoise_denoise.py  # RNNoiseDenoiser — neural denoiser (ctypes -> rnnoise.dll)
     deepfilternet.py    # DeepFilterNetDenoiser — DFN3 streaming via onnxruntime
     gtcrn.py            # GTCRNDenoiser — ultra-light 16 kHz NN (onnxruntime + resample)
+mac/                # macOS virtual-microphone driver (see mac/README.md)
+  PrismAudioDriver/ # our MIT fork of Krasp's HAL plugin ("Prism Microphone")
+  vendor/           # pristine upstream KraspHAL source + license (provenance)
+  build_driver.sh   # clang build + ad-hoc codesign -> mac/dist/PrismAudio.driver
 scripts/
   fetch_deepfilternet.py  # download the DFN3 ONNX model into models/ (one-time)
   fetch_gtcrn.py          # download the GTCRN ONNX model into models/ (one-time)
   fetch_silero_vad.py     # download the Silero VAD ONNX model into models/ (one-time)
+  fetch_vbcable.py        # download the VB-Cable installer into installers/ (one-time)
 tests/
-  test_pipeline.py  # offline DSP/meter checks (no audio devices needed)
+  test_pipeline.py  # offline DSP/meter/ring checks (no audio devices needed)
 roadmap.md          # phase statuses — single source of truth for the roadmap
+.github/workflows/mac.yml  # CI: build + ad-hoc sign the mac driver artifact
 docs/               # static site (GitHub Pages serves this folder; no build step)
   index.html        # product page: hero, use cases, how it works, comparison
   roadmap/index.html   # renders roadmap.md as a phase list + detail panel
@@ -142,19 +153,47 @@ stage classes appended in `build_default_pipeline()`. The audio callback in
 [prism/audio.py](prism/audio.py) stays trivial — all processing lives in stages.
 
 Tunables (cutoff, gate threshold, attack/release, samplerate, blocksize) live in
-[prism/config.py](prism/config.py). The startup guard in `app.py` prints
-VB-Cable install instructions and exits if the cable isn't found.
+[prism/config.py](prism/config.py). At startup `app.py` calls
+`bootstrap.ensure_virtual_device()` ([prism/bootstrap.py](prism/bootstrap.py)),
+which self-installs/spawns the virtual device if it's missing (below); only if
+that fails does it print manual instructions and exit.
 
 ## How audio routing works (important context)
 
-VB-Audio Virtual Cable creates two Windows devices:
+Per platform (all handled by [prism/bootstrap.py](prism/bootstrap.py)):
+
+**Windows** — VB-Audio Virtual Cable creates two devices:
 - **CABLE Input** — a *playback/output* device. Prism **writes** processed audio
   here.
 - **CABLE Output** — a *recording/input* device. Other apps select this as their
   **microphone**.
 
-VB-Cable must be installed separately (https://vb-audio.com/Cable/, run as admin,
-reboot). Whether to bundle vs. user-install is an open question (see PRD §13).
+If the cable is missing, the bootstrap offers to run the **bundled VB-Cable
+installer** (fetch it once with `scripts/fetch_vbcable.py`; bundled unmodified
+— mere aggregation, VB-Cable stays VB-Audio's donationware). One UAC prompt,
+then VB-Cable still needs **one reboot**. Without the bundled installer it
+falls back to the old manual instructions.
+
+**Linux** — no install at all: the bootstrap spawns a PipeWire loopback pair
+(`pw-loopback`) at startup — Prism writes to the **"Prism Virtual Cable"**
+sink, apps record from the **"Prism Microphone"** source — and tears it down
+on exit.
+
+**macOS** — no output device, different architecture: the bundled
+**PrismAudio HAL driver** (`mac/`, an MIT fork of Krasp's KraspHAL) publishes
+a **"Prism Microphone"** input device that reads from a shared-memory ring
+file (`/tmp/com.prism.audio`). Prism opens an *input-only* stream and writes
+processed blocks into the ring ([prism/ring_output.py](prism/ring_output.py))
+— no loopback, no feedback risk, no reboot. Install is one admin prompt (copy
+into `/Library/Audio/Plug-Ins/HAL/` + restart coreaudiod). The driver is
+**ad-hoc signed** (free, loads fine); only the *app's* first-launch Gatekeeper
+warning would need paid notarization. The ring protocol lives in
+`mac/PrismAudioDriver/PrismSharedRing.h` and must stay byte-identical to
+`prism/ring_output.py`. **Status: compiles in CI, unverified on real Mac
+hardware** — the whole macOS path (driver, ring, Core Audio stream) has never
+run on a Mac; do not cut a Mac release on CI-green alone. RNNoise is also
+Windows-first: off-Windows the default and fallback denoiser is GTCRN
+(`config.DENOISER`).
 
 ## Roadmap (phases)
 

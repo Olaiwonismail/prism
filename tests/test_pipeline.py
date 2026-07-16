@@ -234,6 +234,73 @@ def check_gtcrn():
     assert np.array_equal(stage.process(block), block)
 
 
+def check_ring_writer():
+    """The macOS shared-ring writer honours the driver's protocol: correct
+    header layout, samples land before the write index moves, wraparound
+    overwrites oldest data. Pure mmap/struct, so it runs on any OS -- this is
+    the one piece of the macOS path verifiable off-Mac."""
+    import os
+    import struct
+    import tempfile
+
+    from prism.ring_output import (SharedRingWriter, RING_MAGIC, RING_VERSION,
+                                   RING_CAPACITY_FRAMES, RING_CHANNELS,
+                                   _HEADER)
+
+    path = os.path.join(tempfile.mkdtemp(), "prism_ring_test")
+    writer = SharedRingWriter(path, FS)
+
+    # Header must match PrismSharedRing.h field-for-field.
+    with open(path, "rb") as f:
+        raw = f.read(_HEADER.size)
+    magic, version, capacity, channels, rate, w, generation = \
+        _HEADER.unpack(raw)
+    assert (magic, version, capacity, channels) == \
+        (RING_MAGIC, RING_VERSION, RING_CAPACITY_FRAMES, RING_CHANNELS)
+    assert rate == FS and w == 0 and generation == 1
+
+    # Write two blocks; the driver-side read (trail writeIndex) sees exactly
+    # the samples written, in order.
+    b1 = np.linspace(-1.0, 1.0, N, dtype=np.float32)
+    b2 = np.linspace(1.0, -1.0, N, dtype=np.float32)
+    writer.write(b1)
+    writer.write(b2)
+    with open(path, "rb") as f:
+        f.seek(_HEADER.size)
+        stored = np.frombuffer(f.read(2 * N * 4), dtype=np.float32)
+        f.seek(24)
+        (w,) = struct.unpack("<Q", f.read(8))
+    assert w == 2 * N, "write index did not advance by frames written"
+    assert np.array_equal(stored[:N], b1) and np.array_equal(stored[N:], b2)
+
+    # Wraparound: after > capacity frames, writes land mod capacity.
+    total = 2 * N
+    marker = np.full(N, 0.5, dtype=np.float32)
+    while total + N <= RING_CAPACITY_FRAMES:
+        writer.write(np.zeros(N, dtype=np.float32))
+        total += N
+    writer.write(marker)  # crosses (or lands at) the wrap boundary
+    pos = total % RING_CAPACITY_FRAMES
+    with open(path, "rb") as f:
+        f.seek(_HEADER.size + pos * 4)
+        first = min(N, RING_CAPACITY_FRAMES - pos)
+        head = np.frombuffer(f.read(first * 4), dtype=np.float32)
+        f.seek(_HEADER.size)
+        tail = np.frombuffer(f.read((N - first) * 4), dtype=np.float32)
+    assert np.array_equal(np.concatenate([head, tail]), marker), \
+        "wraparound write corrupted samples"
+
+    # Reopening (app restart) bumps generation and resets the index.
+    writer.close()
+    writer = SharedRingWriter(path, FS)
+    with open(path, "rb") as f:
+        _, _, _, _, _, w, generation = _HEADER.unpack(f.read(_HEADER.size))
+    assert w == 0 and generation == 2, "restart did not bump generation"
+    writer.close()
+    print(f"ring writer : header/order/wraparound/restart OK "
+          f"(capacity={RING_CAPACITY_FRAMES})")
+
+
 def check_silero_vad():
     """Silero VAD honours the block contract, passes through when disabled, and
     reports low speech probability on silence (so its gate closes). Detection of
@@ -289,6 +356,7 @@ def main():
     check_noise_meter()
     check_deepfilternet()
     check_gtcrn()
+    check_ring_writer()
     check_silero_vad()
     print("\nAll pipeline checks passed.")
 
